@@ -25,7 +25,7 @@ if [[ "${1:-}" == "fyi" ]]; then
   _ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
   if [[ -f "$_ENV_FILE" ]]; then source "$_ENV_FILE"; fi
   BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-  CHAT_ID="1140320036"
+  CHAT_ID="7584896900"
   SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
   ANON_KEY="${SUPABASE_ANON_KEY:-}"
 
@@ -112,7 +112,7 @@ fi
 ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-CHAT_ID="1140320036"
+CHAT_ID="7584896900"
 
 SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 ANON_KEY="${SUPABASE_ANON_KEY:-}"

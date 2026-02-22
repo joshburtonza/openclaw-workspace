@@ -28,13 +28,15 @@ if [[ -f "$OFFSET_FILE" ]]; then
   OFFSET=$(cat "$OFFSET_FILE" || true)
 fi
 
+JOSH_BOT_USERNAME="${JOSH_BOT_USERNAME:-JoshAmalfiBot}"
+
 URL="https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?timeout=0"
 if [[ -n "$OFFSET" ]]; then
   URL+="&offset=${OFFSET}"
 fi
 
 RESP=$(curl -s "$URL")
-export RESP OFFSET_FILE BOT_TOKEN SUPABASE_URL ANON_KEY SERVICE_KEY
+export RESP OFFSET_FILE BOT_TOKEN SUPABASE_URL ANON_KEY SERVICE_KEY JOSH_BOT_USERNAME
 
 python3 - <<'PY'
 import json, os, subprocess, sys, re
@@ -184,6 +186,120 @@ def handle_available(chat_id):
     else:
         tg_send(chat_id, f"❌ Failed to clear OOO: {result.stderr[:200]}")
 
+# ── Handle /remind command ────────────────────────────────────────────────────
+def handle_remind(chat_id, text):
+    """
+    Formats:
+      /remind 30min Call Riaan
+      /remind 1h Send invoice
+      /remind 3pm Team sync
+      /remind 15:30 Review PR
+      /remind tomorrow 9am Send weekly report
+    """
+    import datetime as _dt, re as _re
+
+    raw = _re.sub(r'^/remind\s*', '', text, flags=_re.IGNORECASE).strip()
+    if not raw:
+        tg_send(chat_id,
+            "⏰ <b>Set a reminder:</b>\n\n"
+            "/remind 30min Description\n"
+            "/remind 2h Description\n"
+            "/remind 3pm Description\n"
+            "/remind 15:30 Description\n"
+            "/remind tomorrow 9am Description"
+        )
+        return
+
+    SAST = _dt.timezone(_dt.timedelta(hours=2))
+    now  = _dt.datetime.now(SAST)
+    due  = None
+    desc = raw
+
+    # Pattern: Xmin text
+    m = _re.match(r'^(\d+)\s*(?:min(?:ute)?s?|m)\s+(.+)$', raw, _re.IGNORECASE)
+    if m:
+        due  = now + _dt.timedelta(minutes=int(m.group(1)))
+        desc = m.group(2).strip()
+
+    # Pattern: Xh / X hours text
+    if not due:
+        m = _re.match(r'^(\d+)\s*(?:hour(?:s)?|h(?:r)?)\s+(.+)$', raw, _re.IGNORECASE)
+        if m:
+            due  = now + _dt.timedelta(hours=int(m.group(1)))
+            desc = m.group(2).strip()
+
+    # Pattern: HH:MM text  or  H:MM text
+    if not due:
+        m = _re.match(r'^(\d{1,2}):(\d{2})\s+(.+)$', raw)
+        if m:
+            hour, minute, rest = int(m.group(1)), int(m.group(2)), m.group(3)
+            due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if due <= now:
+                due += _dt.timedelta(days=1)
+            desc = rest.strip()
+
+    # Pattern: Ham/pm or Hpm text  (e.g. 3pm, 9am, 10pm)
+    if not due:
+        m = _re.match(r'^(\d{1,2})\s*(am|pm)\s+(.+)$', raw, _re.IGNORECASE)
+        if m:
+            hour, ampm, rest = int(m.group(1)), m.group(2).lower(), m.group(3)
+            if ampm == 'pm' and hour != 12:
+                hour += 12
+            elif ampm == 'am' and hour == 12:
+                hour = 0
+            due = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+            if due <= now:
+                due += _dt.timedelta(days=1)
+            desc = rest.strip()
+
+    # Pattern: tomorrow HAM/PM text  or  tomorrow HH:MM text
+    if not due:
+        m = _re.match(r'^tomorrow\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+(.+)$', raw, _re.IGNORECASE)
+        if m:
+            hour, minute = int(m.group(1)), int(m.group(2) or 0)
+            ampm, rest   = m.group(3), m.group(4)
+            if ampm:
+                if ampm.lower() == 'pm' and hour != 12: hour += 12
+                elif ampm.lower() == 'am' and hour == 12: hour = 0
+            tmrw = now + _dt.timedelta(days=1)
+            due  = tmrw.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            desc = rest.strip()
+
+    if not due:
+        tg_send(chat_id,
+            f"❌ Couldn't parse the time from: <code>{raw[:80]}</code>\n\n"
+            "Try: /remind 30min Call Riaan\n"
+            "Or:  /remind 3pm Team sync"
+        )
+        return
+
+    # Insert into Supabase notifications
+    payload = {
+        'type':     'reminder',
+        'title':    desc,
+        'status':   'unread',
+        'priority': 'normal',
+        'agent':    'Josh',
+        'metadata': {'due': due.isoformat()},
+    }
+    try:
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/notifications",
+            headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}',
+                     'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
+            json=payload, timeout=15
+        )
+        if r.status_code in (200, 201, 204):
+            if due.date() == now.date():
+                due_display = due.strftime('%H:%M SAST')
+            else:
+                due_display = due.strftime('%a %d %b, %H:%M SAST')
+            tg_send(chat_id, f'✅ Reminder set: <b>{desc}</b>\n⏰ {due_display}')
+        else:
+            tg_send(chat_id, f'❌ Failed to save reminder (HTTP {r.status_code})')
+    except Exception as e:
+        tg_send(chat_id, f'❌ Error saving reminder: {e}')
+
 # ── Handle /help command ──────────────────────────────────────────────────────
 def handle_help(chat_id):
     tg_send(chat_id,
@@ -195,6 +311,9 @@ def handle_help(chat_id):
         "• \"Set me as OOO tomorrow\"\n"
         "• \"What did we push to QMS Guard this week?\"\n\n"
         "📋 <b>Commands</b>\n"
+        "/remind 30min Description — set a reminder\n"
+        "/remind 3pm Description\n"
+        "/remind tomorrow 9am Description\n"
         "/newlead [Name] email@co.com [Company]\n"
         "/ooo [reason] — Sophia holds all drafts\n"
         "/available — Resume normal ops\n\n"
@@ -231,7 +350,7 @@ for u in updates:
         except ValueError:
             continue
 
-        if action not in ('approve', 'hold', 'adjust'):
+        if action not in ('approve', 'hold', 'adjust', 'remind_done', 'remind_snooze'):
             continue
 
         if action == 'approve':
@@ -251,6 +370,48 @@ for u in updates:
                     f.write(email_id)
                 tg_send(chat_id, '✏️ Cool. Reply in this chat with how you want me to adjust the draft.')
 
+        elif action == 'remind_done':
+            # Mark reminder dismissed
+            requests.patch(
+                f"{SUPABASE_URL}/rest/v1/notifications?id=eq.{email_id}",
+                headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}',
+                         'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
+                json={'status': 'dismissed'}, timeout=10
+            )
+            if chat_id:
+                tg_send(chat_id, '✅ Reminder done!')
+
+        elif action == 'remind_snooze':
+            # Snooze 15 min — update due time, clear last_sent_at
+            import datetime as _dt
+            SAST = _dt.timezone(_dt.timedelta(hours=2))
+            snooze_until = (_dt.datetime.now(SAST) + _dt.timedelta(minutes=15)).isoformat()
+            # Get current metadata
+            try:
+                resp = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/notifications?id=eq.{email_id}&select=metadata",
+                    headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}'},
+                    timeout=10
+                )
+                rows = resp.json()
+                meta = (rows[0].get('metadata') or {}) if rows else {}
+                if isinstance(meta, str):
+                    import json as _json
+                    try: meta = _json.loads(meta)
+                    except Exception: meta = {}
+                meta['due'] = snooze_until
+                meta['last_sent_at'] = None
+                requests.patch(
+                    f"{SUPABASE_URL}/rest/v1/notifications?id=eq.{email_id}",
+                    headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}',
+                             'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
+                    json={'metadata': meta}, timeout=10
+                )
+            except Exception:
+                pass
+            if chat_id:
+                tg_send(chat_id, '⏱ Snoozed 15 minutes.')
+
         continue  # done with this update
 
     # ── Text message (commands) ───────────────────────────────────────────────
@@ -260,13 +421,75 @@ for u in updates:
 
     text    = (msg.get('text') or '').strip()
     chat_id = ((msg.get('chat') or {}).get('id'))
+    chat_type = (msg.get('chat') or {}).get('type', 'private')  # private/group/supergroup
 
     if not text or not chat_id:
         continue
 
+    is_group = chat_type in ('group', 'supergroup')
+    JOSH_BOT_USERNAME = os.environ.get('JOSH_BOT_USERNAME', 'JoshAmalfiBot')
+    WS = '/Users/henryburton/.openclaw/workspace-anthropic'
+
+    # ── Group chat: log ALL messages to shared history ────────────────────────
+    if is_group:
+        import datetime as _dt
+        sender = msg.get('from') or {}
+        sender_name = sender.get('username') or sender.get('first_name') or 'Unknown'
+        is_bot_msg  = sender.get('is_bot', False)
+
+        group_history_file = f"{WS}/tmp/group-{chat_id}.jsonl"
+        try:
+            with open(group_history_file, 'a') as gf:
+                import json as _json
+                gf.write(_json.dumps({
+                    'ts': _dt.datetime.utcnow().strftime('%H:%M'),
+                    'role': sender_name,
+                    'is_bot': is_bot_msg,
+                    'message': text,
+                }) + '\n')
+            # Keep last 100 lines
+            with open(group_history_file) as gf:
+                lines = gf.readlines()
+            if len(lines) > 100:
+                with open(group_history_file, 'w') as gf:
+                    gf.writelines(lines[-100:])
+        except Exception:
+            pass
+
+        # Also write to Supabase so RaceTechnikAiBot (and any other bot) can read it
+        try:
+            import requests as _req
+            _req.post(
+                f"{SUPABASE_URL}/rest/v1/group_chat_history",
+                headers={
+                    'apikey': SERVICE_KEY,
+                    'Authorization': f'Bearer {SERVICE_KEY}',
+                    'Content-Type': 'application/json',
+                    'Prefer': 'return=minimal',
+                },
+                json={
+                    'chat_id': str(chat_id),
+                    'sender': sender_name,
+                    'is_bot': is_bot_msg,
+                    'message': text,
+                },
+                timeout=5
+            )
+        except Exception:
+            pass
+
+        # Only respond if @mentioned — skip commands that aren't for us
+        mention = f'@{JOSH_BOT_USERNAME}'
+        if mention.lower() not in text.lower():
+            continue  # log only, don't respond
+
+    # ── Commands (work in both private and group chats) ───────────────────────
     text_lower = text.lower()
 
-    if text_lower.startswith('/newlead'):
+    if text_lower.startswith('/remind'):
+        handle_remind(chat_id, text)
+
+    elif text_lower.startswith('/newlead'):
         handle_newlead(chat_id, text)
 
     elif text_lower.startswith('/ooo'):
@@ -278,30 +501,31 @@ for u in updates:
     elif text_lower.startswith('/help') or text_lower == '/start':
         handle_help(chat_id)
 
-    # Check for pending adjust reply, then fall through to Claude gateway
+    # Free-text → Claude gateway
     else:
-        pending_file = f"/Users/henryburton/.openclaw/workspace-anthropic/tmp/telegram_pending_adjust_{chat_id}"
+        group_history_file = f"{WS}/tmp/group-{chat_id}.jsonl" if is_group else ''
+        pending_file = f"{WS}/tmp/telegram_pending_adjust_{chat_id}"
         if os.path.exists(pending_file):
             try:
                 with open(pending_file) as f:
                     email_id = f.read().strip()
                 os.remove(pending_file)
-                # Pass adjust request to Claude gateway for real regeneration
                 subprocess.Popen([
                     'bash',
-                    '/Users/henryburton/.openclaw/workspace-anthropic/scripts/telegram-claude-gateway.sh',
+                    f'{WS}/scripts/telegram-claude-gateway.sh',
                     str(chat_id),
                     f'Adjust the email draft for email_id={email_id}. The requested change: {text}',
+                    group_history_file,
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
         else:
-            # Free-text message → route to Claude Code gateway
             subprocess.Popen([
                 'bash',
-                '/Users/henryburton/.openclaw/workspace-anthropic/scripts/telegram-claude-gateway.sh',
+                f'{WS}/scripts/telegram-claude-gateway.sh',
                 str(chat_id),
                 text,
+                group_history_file,
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 # advance offset

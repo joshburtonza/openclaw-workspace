@@ -4,17 +4,19 @@ set -euo pipefail
 # Video Bot runner: generate scripts + INSERT into Supabase tasks.
 # Goal: make "7am Daily Morning Video Scripts" actually populate Mission Control Content.
 
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 ROOT="/Users/henryburton/.openclaw/workspace-anthropic"
 SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
-SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ"
+
+# Load secrets
+ENV_FILE="$ROOT/.env.scheduler"
+if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
+SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-${SUPABASE_ANON_KEY:-}}"
 
 MODEL="claude-sonnet-4-6"
 
-log_status() {
-  if [[ -x "$ROOT/alex-status.sh" ]]; then
-    bash "$ROOT/alex-status.sh" "$@" || true
-  fi
-}
+export SUPABASE_URL SUPABASE_KEY
 
 supa_get_today_count() {
   # Counts Video Bot scripts created today (local day, SAST)
@@ -31,7 +33,6 @@ now=datetime.datetime.now(SAST)
 start=now.replace(hour=0, minute=0, second=0, microsecond=0)
 end=start+datetime.timedelta(days=1)
 
-# PostgREST filters
 qs = urlencode([
   ('select','id'),
   ('created_by','eq.Video Bot'),
@@ -45,25 +46,7 @@ print(len(resp.json()))
 PY
 }
 
-insert_task() {
-  local title="$1"
-  local desc="$2"
-  local tags_json="$3"
-
-  curl -sS -X POST "$SUPABASE_URL/rest/v1/tasks" \
-    -H "apikey: $SUPABASE_KEY" \
-    -H "Authorization: Bearer $SUPABASE_KEY" \
-    -H 'Content-Type: application/json' \
-    -H 'Prefer: return=minimal' \
-    -d "{\"title\":$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$title"),\"description\":$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$desc"),\"priority\":\"normal\",\"status\":\"todo\",\"assigned_to\":\"Josh\",\"created_by\":\"Video Bot\",\"tags\":$tags_json}" \
-    >/dev/null
-}
-
 main() {
-  export SUPABASE_URL SUPABASE_KEY
-
-  log_status start "Video Bot: generating scripts"
-
   local day youtube_day
   day="$(date +%A)"
   youtube_day=false
@@ -73,45 +56,101 @@ main() {
   local existing
   existing=$(supa_get_today_count || echo "0")
   if [[ "$existing" -ge 4 ]]; then
-    log_status done "Video Bot: scripts already present for today ($existing)"
+    echo "Video Bot: scripts already present for today ($existing) — skipping"
     exit 0
   fi
 
-  # Generate JSON so we can parse reliably.
+  echo "Video Bot: generating scripts for $day (youtube_day=$youtube_day)..."
+
+  # Write prompt to temp file (stdin redirect — avoids quoting issues)
+  PROMPT_TMP=$(mktemp /tmp/video-bot-prompt-XXXXXX)
+  cat > "$PROMPT_TMP" <<PROMPT
+You are Video Bot for Josh Burton (Amalfi AI, South Africa).
+
+Generate content scripts in STRICT JSON only. No commentary, no markdown fences, just raw JSON.
+
+Rules:
+- 4 TikTok scripts every day
+- Also 2 YouTube scripts only if today is Monday or Thursday (today is: $day; youtube_day=$youtube_day)
+- South African English, warm, direct, no corporate speak
+- No dashes or hyphens in the writing
+- TikTok uses Callaway Method: hook, 6 to 10 lines, dopamine hits, payoff
+
+Return JSON with shape:
+{
+  "tiktoks": [{"title": string, "category": string, "hook": string, "script_lines": [string], "payoff": string}],
+  "youtubes": [{"title": string, "hook": string, "sections": [{"heading": string, "points": [string]}], "cta": string, "thumbnail": string}]
+}
+
+Constraints:
+- Ensure at least 1 TikTok is from categories 7, 8, or 9:
+  7 Make it make sense
+  8 What I told my telemarketer
+  9 The OpenClaw Build Series
+
+Categories list:
+1 AI agency automation
+2 Client success systems
+3 Building in public
+4 Cold outreach sales
+5 Killing debt
+6 Personal brand
+7 Make it make sense
+8 What I told my telemarketer
+9 The OpenClaw Build Series
+PROMPT
+
+  # Run Claude — use stdin redirect (not arg passing — avoids quoting failures)
+  unset CLAUDECODE
   local json
-  json=$(claude -p --model "$MODEL" "You are Video Bot for Josh Burton (Amalfi AI, South Africa).\n\nGenerate content scripts in STRICT JSON only. No commentary.\n\nRules:\n- 4 TikTok scripts every day\n- Also 2 YouTube scripts only if today is Monday or Thursday (today is: $day; youtube_day=$youtube_day)\n- South African English, warm, direct, no corporate speak\n- No dashes or hyphens in the writing\n- TikTok uses Callaway Method: hook, 6 to 10 lines, dopamine hits, payoff\n\nReturn JSON with shape:\n{\n  \"tiktoks\": [{\"title\": string, \"category\": string, \"hook\": string, \"script_lines\": [string], \"payoff\": string}],\n  \"youtubes\": [{\"title\": string, \"hook\": string, \"sections\": [{\"heading\": string, \"points\": [string]}], \"cta\": string, \"thumbnail\": string}]\n}\n\nConstraints:\n- Ensure at least 1 TikTok is from categories 7, 8, or 9:\n  7 Make it make sense\n  8 What I told my telemarketer\n  9 The OpenClaw Build Series\n\nCategories list:\n1 AI agency automation\n2 Client success systems\n3 Building in public\n4 Cold outreach sales\n5 Killing debt\n6 Personal brand\n7 Make it make sense\n8 What I told my telemarketer\n9 The OpenClaw Build Series\n")
+  json=$(claude --print \
+    --dangerously-skip-permissions \
+    --model "$MODEL" \
+    < "$PROMPT_TMP" 2>/dev/null)
+  rm -f "$PROMPT_TMP"
 
-  # Validate and insert
+  if [[ -z "$json" ]]; then
+    echo "Video Bot: Claude returned empty response" >&2
+    exit 1
+  fi
+
+  # Strip markdown fences if Claude added them anyway
+  json=$(echo "$json" | python3 -c '
+import sys, re
+t = sys.stdin.read().strip()
+t = re.sub(r"^[`]{3}json\s*", "", t)
+t = re.sub(r"^[`]{3}\s*", "", t)
+t = re.sub(r"[`]{3}\s*$", "", t)
+print(t.strip())
+')
+
+  # Parse JSON → build insert list → insert into Supabase
+  # Pass json via env var to avoid stdin conflict with heredoc
+  export VIDEO_BOT_JSON="$json"
   python3 - <<'PY'
-import json, sys, os, textwrap
+import json, sys, os, requests
 
-data=sys.stdin.read()
+SUPABASE_URL=os.environ['SUPABASE_URL']
+KEY=os.environ['SUPABASE_KEY']
+
+data=os.environ.get('VIDEO_BOT_JSON','')
 try:
     obj=json.loads(data)
 except Exception as e:
     raise SystemExit(f"Failed to parse JSON from Claude: {e}\nRaw:\n{data[:800]}")
 
-def ins(title, desc, tags):
-    import subprocess
-    cmd=[
-        'bash','-lc',
-        f"insert_task {json.dumps(title)} {json.dumps(desc)} '{json.dumps(tags)}'"
-    ]
-    # use parent shell function via env - we call through bash -lc with function exported? not available.
+items=[]
 
-# We'll just emit a shell-friendly plan and let bash loop insert.
-
-out=[]
 for t in obj.get('tiktoks',[])[:4]:
     title='[TikTok] '+t.get('title','').strip()
     cat=t.get('category','').strip()
     hook=t.get('hook','').strip()
     lines=t.get('script_lines',[]) or []
     payoff=t.get('payoff','').strip()
-    body='CATEGORY: '+cat+"\nHOOK: "+hook+"\n\nSCRIPT:\n"+"\n".join([f"Line {i+1}: {l}" for i,l in enumerate(lines)])
+    body='CATEGORY: '+cat+'\nHOOK: '+hook+'\n\nSCRIPT:\n'+'\n'.join([f'Line {i+1}: {l}' for i,l in enumerate(lines)])
     if payoff:
-        body += "\n\nPAYOFF: "+payoff
-    out.append({'title': title, 'desc': body, 'tags': ['tiktok','content']})
+        body += '\n\nPAYOFF: '+payoff
+    items.append({'title': title, 'desc': body, 'tags': ['tiktok','content']})
 
 for y in (obj.get('youtubes',[]) or [])[:2]:
     title='[YouTube] '+y.get('title','').strip()
@@ -119,7 +158,7 @@ for y in (obj.get('youtubes',[]) or [])[:2]:
     sections=y.get('sections',[]) or []
     cta=y.get('cta','').strip()
     thumb=y.get('thumbnail','').strip()
-    parts=["HOOK: "+hook, ""]
+    parts=['HOOK: '+hook, '']
     for s in sections:
         parts.append(s.get('heading','').strip())
         for p in s.get('points',[]) or []:
@@ -129,38 +168,27 @@ for y in (obj.get('youtubes',[]) or [])[:2]:
         parts.append('CTA: '+cta)
     if thumb:
         parts.append('THUMBNAIL: '+thumb)
-    out.append({'title': title, 'desc': "\n".join(parts).strip(), 'tags': ['youtube','content']})
+    items.append({'title': title, 'desc': '\n'.join(parts).strip(), 'tags': ['youtube','content']})
 
-print(json.dumps(out))
-PY
-  <<<"$json" \
-  | python3 - <<'PY'
-import json, sys, subprocess
-items=json.load(sys.stdin)
+url=SUPABASE_URL+'/rest/v1/tasks'
+inserted=0
 for it in items:
-    title=it['title']
-    desc=it['desc']
-    tags=it['tags']
-    # call the bash insert_task function by executing this script itself with a special env
-    # simpler: call curl directly here
-    import os, requests
-    url=os.environ['SUPABASE_URL']+'/rest/v1/tasks'
-    key=os.environ['SUPABASE_KEY']
     payload={
-        'title': title,
-        'description': desc,
+        'title': it['title'],
+        'description': it['desc'],
         'priority': 'normal',
         'status': 'todo',
         'assigned_to': 'Josh',
         'created_by': 'Video Bot',
-        'tags': tags,
+        'tags': it['tags'],
     }
-    r=requests.post(url, headers={'apikey':key,'Authorization':f'Bearer {key}','Content-Type':'application/json','Prefer':'return=minimal'}, json=payload)
+    r=requests.post(url, headers={'apikey':KEY,'Authorization':f'Bearer {KEY}','Content-Type':'application/json','Prefer':'return=minimal'}, json=payload)
     r.raise_for_status()
-print(f"inserted {len(items)}")
-PY
+    inserted+=1
+    print(f"  Inserted: {it['title']}")
 
-  log_status done "Video Bot: scripts generated and inserted"
+print(f"Video Bot: done — {inserted} scripts inserted into Supabase tasks")
+PY
 }
 
 main "$@"

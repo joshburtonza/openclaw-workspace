@@ -3,31 +3,26 @@
 <plist version="1.0">
   <dict>
     <key>Label</key>
-    <string>com.amalfiai.morning-brief</string>
+    <string>com.amalfiai.reminder-poller</string>
 
     <key>ProgramArguments</key>
     <array>
       <string>/bin/bash</string>
-      <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/morning-brief.sh</string>
+      <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/reminder-poller.sh</string>
     </array>
 
-    <!-- 05:30 UTC = 07:30 SAST -->
-    <key>StartCalendarInterval</key>
-    <dict>
-      <key>Hour</key>
-      <integer>5</integer>
-      <key>Minute</key>
-      <integer>30</integer>
-    </dict>
+    <!-- Every 5 minutes -->
+    <key>StartInterval</key>
+    <integer>300</integer>
 
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
 
     <key>StandardOutPath</key>
-    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/morning-brief.log</string>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/reminder-poller.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/morning-brief.err.log</string>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/reminder-poller.err.log</string>
 
     <key>ProcessType</key>
     <string>Background</string>

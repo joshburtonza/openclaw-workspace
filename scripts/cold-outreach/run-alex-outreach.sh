@@ -21,7 +21,7 @@ SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 FROM_EMAIL="alex@amalfiai.com"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-CHAT_ID="1140320036"
+CHAT_ID="7584896900"
 MODEL="claude-sonnet-4-6"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
@@ -206,10 +206,17 @@ Body: [your email body]""",
     }
 
     prompt = step_prompts[step]
+    import tempfile, os
+    with tempfile.NamedTemporaryFile(mode='w', suffix='', delete=False, prefix='/tmp/alex-prompt-') as f:
+        f.write(prompt)
+        prompt_file = f.name
+    env = {**os.environ, 'CLAUDECODE': ''}
+    env.pop('CLAUDECODE', None)
     result = subprocess.run(
-        ['claude', '-p', '--model', MODEL, prompt],
-        capture_output=True, text=True, timeout=90
+        ['claude', '--print', '--model', MODEL],
+        stdin=open(prompt_file), capture_output=True, text=True, timeout=90, env=env
     )
+    os.unlink(prompt_file)
     raw = result.stdout.strip()
 
     subject, body = '', ''

@@ -12,9 +12,10 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 CHAT_ID="${1:-}"
 USER_MSG="${2:-}"
+GROUP_HISTORY_FILE="${3:-}"   # optional: path to group chat history jsonl
 
 if [[ -z "$CHAT_ID" || -z "$USER_MSG" ]]; then
-  echo "Usage: $0 <chat_id> <message>" >&2
+  echo "Usage: $0 <chat_id> <message> [group_history_file]" >&2
   exit 1
 fi
 
@@ -26,6 +27,11 @@ BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 HISTORY_FILE="$WS/tmp/telegram-chat-history.jsonl"
 SYSTEM_PROMPT_FILE="$WS/prompts/telegram-claude-system.md"
 mkdir -p "$WS/tmp"
+
+# In group chats: small random delay to avoid responding simultaneously with other bots
+if [[ -n "$GROUP_HISTORY_FILE" ]]; then
+  sleep $(python3 -c "import random; print(round(random.uniform(1.0, 2.5), 1))")
+fi
 
 # ── Send a Telegram message ───────────────────────────────────────────────────
 tg_send() {
@@ -46,9 +52,29 @@ tg_typing() {
     -d "{\"chat_id\": \"${CHAT_ID}\", \"action\": \"typing\"}" >/dev/null 2>&1 || true
 }
 
-# ── Build conversation history (last 10 exchanges) ───────────────────────────
+# ── Build conversation history ────────────────────────────────────────────────
 HISTORY=""
-if [[ -f "$HISTORY_FILE" ]]; then
+
+if [[ -n "$GROUP_HISTORY_FILE" && -f "$GROUP_HISTORY_FILE" ]]; then
+  # Group chat: use shared history (includes messages from all bots + humans)
+  HISTORY=$(tail -40 "$GROUP_HISTORY_FILE" | python3 -c "
+import sys, json
+lines = [l.strip() for l in sys.stdin if l.strip()]
+parts = []
+for line in lines:
+    try:
+        obj = json.loads(line)
+        role = obj.get('role','?')
+        msg  = obj.get('message','')
+        ts   = obj.get('ts','')
+        prefix = f'[{ts}] ' if ts else ''
+        parts.append(f'{prefix}{role}: {msg}')
+    except:
+        pass
+print('\n'.join(parts))
+" 2>/dev/null || true)
+elif [[ -f "$HISTORY_FILE" ]]; then
+  # Private chat: use personal history
   HISTORY=$(tail -20 "$HISTORY_FILE" | python3 -c "
 import sys, json
 lines = [l.strip() for l in sys.stdin if l.strip()]
@@ -69,25 +95,49 @@ fi
 SYSTEM_PROMPT=$(cat "$SYSTEM_PROMPT_FILE" 2>/dev/null || echo "You are Claude, Amalfi AI's AI assistant.")
 TODAY=$(date '+%A, %d %B %Y %H:%M SAST')
 
-if [[ -n "$HISTORY" ]]; then
-  FULL_PROMPT="${SYSTEM_PROMPT}
+# Inject group chat context
+if [[ -n "$GROUP_HISTORY_FILE" ]]; then
+  GROUP_CONTEXT="
+━━━ GROUP CHAT MODE ━━━
 
+You are @JoshAmalfiBot in a group Telegram chat alongside other bots and humans.
+
+Other bots in this group:
+- @RaceTechnikAiBot — handles Race Technik operations (Mac mini, Supabase DB, bookings, Yoco payments, PWA dashboard, process templates). When it says something, listen and internalise it.
+
+Rules for group chats:
+- You were mentioned with @JoshAmalfiBot — respond to that specific request only
+- READ the full conversation history above carefully — it includes messages from other bots and humans
+- Do NOT re-introduce yourself or repeat what others just said
+- Be concise — group chats, not essays
+- If another bot gave an update and you're asked to act on it, reference it specifically: \"based on what RaceTechnikAiBot said about the Mac mini stack...\"
+- Do NOT respond to messages not directed at you
+- Tone: natural, human — like a colleague in a group chat
+"
+else
+  GROUP_CONTEXT=""
+fi
+
+if [[ -n "$HISTORY" ]]; then
+  FULL_PROMPT="${SYSTEM_PROMPT}${GROUP_CONTEXT}
 Today: ${TODAY}
 
-Recent conversation:
+Conversation history:
 ${HISTORY}
 
 Josh: ${USER_MSG}"
 else
-  FULL_PROMPT="${SYSTEM_PROMPT}
-
+  FULL_PROMPT="${SYSTEM_PROMPT}${GROUP_CONTEXT}
 Today: ${TODAY}
 
 Josh: ${USER_MSG}"
 fi
 
 # ── Store the user message in history ────────────────────────────────────────
-echo "{\"role\":\"Josh\",\"message\":$(echo "$USER_MSG" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" >> "$HISTORY_FILE"
+# In group chats, messages are already logged by the poller — skip to avoid duplicates
+if [[ -z "$GROUP_HISTORY_FILE" ]]; then
+  echo "{\"role\":\"Josh\",\"message\":$(echo "$USER_MSG" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" >> "$HISTORY_FILE"
+fi
 
 # ── Show typing indicator ─────────────────────────────────────────────────────
 tg_typing
@@ -144,7 +194,13 @@ PY
   fi
 
   # Store response in history
-  echo "{\"role\":\"Claude\",\"message\":$(echo "$RESPONSE" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" >> "$HISTORY_FILE"
+  if [[ -n "$GROUP_HISTORY_FILE" ]]; then
+    # Write bot's own response to the shared group history
+    TS=$(date '+%H:%M')
+    echo "{\"ts\":\"${TS}\",\"role\":\"JoshAmalfiBot\",\"is_bot\":true,\"message\":$(echo "$RESPONSE" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" >> "$GROUP_HISTORY_FILE"
+  else
+    echo "{\"role\":\"Claude\",\"message\":$(echo "$RESPONSE" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" >> "$HISTORY_FILE"
+  fi
 else
   tg_send "_(no response)_"
 fi

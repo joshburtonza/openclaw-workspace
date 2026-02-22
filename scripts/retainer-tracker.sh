@@ -16,7 +16,7 @@ if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-CHAT_ID="1140320036"
+CHAT_ID="7584896900"
 SOPHIA_EMAIL="sophia@amalfiai.com"
 
 export SUPABASE_URL SUPABASE_KEY BOT_TOKEN CHAT_ID SOPHIA_EMAIL

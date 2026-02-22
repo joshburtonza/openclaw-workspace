@@ -183,5 +183,28 @@ for tid in thread_ids:
         "subject":    subject,
     })
 
+# ── Step 6: also surface any existing pending rows in the DB ─────────────────
+# Catches rows inserted via webhook, direct API, or tests that bypassed Gmail.
+import requests as _req
+try:
+    _r = _req.get(
+        "%s/rest/v1/email_queue?status=eq.pending&select=id,from_email,subject&order=created_at.asc&limit=20" % SUPABASE_URL,
+        headers={'apikey': INSERT_KEY, 'Authorization': 'Bearer %s' % INSERT_KEY},
+        timeout=10
+    )
+    db_pending = _r.json() if _r.status_code == 200 else []
+except Exception:
+    db_pending = []
+
+seen_ids = {r['id'] for r in results}
+for row in db_pending:
+    if row.get('id') and row['id'] not in seen_ids:
+        results.append({
+            'id':         row['id'],
+            'from_email': row.get('from_email', ''),
+            'subject':    row.get('subject', ''),
+        })
+        seen_ids.add(row['id'])
+
 print(json.dumps(results, ensure_ascii=False))
 PY

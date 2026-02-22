@@ -1,94 +1,90 @@
 #!/usr/bin/env bash
 # nightly-session-flush.sh
-# Converts today's anthropic:main session → daily chat log (memory/YYYY-MM-DD-chat.md)
-# then resets the session clean for tomorrow.
-# Memory extraction is handled by the calling agent (not this script).
-
+# Writes a daily ops log to memory/YYYY-MM-DD.md from live system data.
+# Runs nightly at 22:00 SAST (20:00 UTC) via LaunchAgent.
 set -euo pipefail
 
-SESSIONS_DIR="/Users/henryburton/.openclaw/agents/anthropic/sessions"
-SESSIONS_JSON="$SESSIONS_DIR/sessions.json"
 WORKSPACE="/Users/henryburton/.openclaw/workspace-anthropic"
-MEMORY_DIR="$WORKSPACE/memory"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PARSER="$SCRIPT_DIR/session-to-daily-log.py"
+ENV_FILE="$WORKSPACE/.env.scheduler"
+source "$ENV_FILE"
 
-# Date in SAST
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+unset CLAUDECODE
+
+KEY="${SUPABASE_SERVICE_ROLE_KEY}"
+SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 DATE=$(TZ=Africa/Johannesburg date '+%Y-%m-%d')
-OUT_FILE="$MEMORY_DIR/$DATE-chat.md"
+DOW=$(TZ=Africa/Johannesburg date '+%A, %B %-d, %Y')
+OUT_FILE="$WORKSPACE/memory/${DATE}.md"
 
-echo "[session-flush] Starting nightly flush: $DATE"
+echo "[nightly-flush] Starting for $DATE"
 
-# ─────────────────────────────────────────────
-# STEP 1: Find the current anthropic:main session
-# ─────────────────────────────────────────────
-SESSION_ID=$(python3 -c "
-import json
-with open('$SESSIONS_JSON') as f:
-    d = json.load(f)
-entry = d.get('agent:anthropic:main', {})
-print(entry.get('sessionId', ''))
-" 2>/dev/null || echo "")
+# ── Email activity today ──────────────────────────────────────────────────────
+EMAIL_STATS=$(curl -s "${SUPABASE_URL}/rest/v1/email_queue?select=status,created_at&order=created_at.desc&limit=100" \
+  -H "apikey: $KEY" -H "Authorization: Bearer $KEY" | python3 -c "
+import json, sys, time, calendar
+from datetime import datetime
+rows = json.loads(sys.stdin.read()) or []
+today = datetime.now().strftime('%Y-%m-%d')
+counts = {}
+for r in rows:
+    if r.get('created_at','')[:10] == today:
+        s = r.get('status','?')
+        counts[s] = counts.get(s,0) + 1
+if not counts:
+    print('No email activity today.')
+else:
+    print(', '.join(str(v)+' '+k for k,v in sorted(counts.items())))
+" 2>/dev/null || echo "unavailable")
 
-if [ -z "$SESSION_ID" ]; then
-    echo "[session-flush] No active session found."
-    echo "FLUSH_STATUS=no_session"
-    exit 0
-fi
+# ── Agents status ─────────────────────────────────────────────────────────────
+AGENT_STATUS=$(launchctl list | grep com.amalfiai | while IFS=$'\t' read -r pid code label; do
+  name="${label#com.amalfiai.}"
+  icon="✅"
+  [[ "$code" != "0" && "$code" != "-" ]] && icon="⚠️ (exit $code)"
+  echo "- $icon $name"
+done | sort)
 
-SESSION_FILE="$SESSIONS_DIR/$SESSION_ID.jsonl"
+# ── Repo changes today ────────────────────────────────────────────────────────
+REPO_LOG=""
+for ENTRY in "chrome-auto-care:Race Technik" "qms-guard:Ascend LC" "favorite-flow-9637aff2:Favorite Logistics"; do
+  DIR="${ENTRY%%:*}"
+  NAME="${ENTRY#*:}"
+  COMMITS=$(git -C "$WORKSPACE/$DIR" log --oneline --since="24 hours ago" 2>/dev/null | head -5)
+  if [[ -n "$COMMITS" ]]; then
+    REPO_LOG="${REPO_LOG}**${NAME}:**
+$COMMITS
 
-if [ ! -f "$SESSION_FILE" ]; then
-    echo "[session-flush] Session file missing — cleaning index."
-    python3 -c "
-import json
-with open('$SESSIONS_JSON') as f: d = json.load(f)
-d.pop('agent:anthropic:main', None)
-with open('$SESSIONS_JSON', 'w') as f: json.dump(d, f, indent=2)
 "
-    echo "FLUSH_STATUS=no_session"
-    exit 0
+  fi
+done
+[[ -z "$REPO_LOG" ]] && REPO_LOG="No commits in any client repo today."
+
+# ── Write daily log ───────────────────────────────────────────────────────────
+if [[ -f "$OUT_FILE" ]]; then
+  echo "[nightly-flush] Log already exists for $DATE — appending system summary"
+  cat >> "$OUT_FILE" << SECTION
+
+## Nightly System Summary
+- Email activity: ${EMAIL_STATS}
+- All agents: $(launchctl list | grep -c com.amalfiai) running
+
+### Repo activity
+${REPO_LOG}
+SECTION
+else
+  cat > "$OUT_FILE" << LOG
+# Daily Log — ${DOW}
+
+## Email Activity
+${EMAIL_STATS}
+
+## Agent Health
+${AGENT_STATUS}
+
+## Repo Activity
+${REPO_LOG}
+LOG
 fi
 
-echo "[session-flush] Found session: $SESSION_ID"
-
-# ─────────────────────────────────────────────
-# STEP 2: Convert session → daily chat markdown
-# ─────────────────────────────────────────────
-mkdir -p "$MEMORY_DIR"
-
-if [ -f "$OUT_FILE" ]; then
-    SUFFIX=$(TZ=Africa/Johannesburg date '+%H%M')
-    OUT_FILE="$MEMORY_DIR/${DATE}-chat-${SUFFIX}.md"
-fi
-
-python3 "$PARSER" "$SESSION_FILE" --out "$OUT_FILE" --date "$DATE"
-echo "[session-flush] Chat log: $OUT_FILE"
-
-# ─────────────────────────────────────────────
-# STEP 3: Archive session file
-# ─────────────────────────────────────────────
-ARCHIVE="${SESSION_ID}.jsonl.deleted.$(date -u '+%Y-%m-%dT%H-%M-%S').000Z"
-mv "$SESSION_FILE" "$SESSIONS_DIR/$ARCHIVE"
-echo "[session-flush] Archived: $ARCHIVE"
-
-# ─────────────────────────────────────────────
-# STEP 4: Clear session index
-# ─────────────────────────────────────────────
-python3 -c "
-import json
-with open('$SESSIONS_JSON') as f: d = json.load(f)
-d.pop('agent:anthropic:main', None)
-with open('$SESSIONS_JSON', 'w') as f: json.dump(d, f, indent=2)
-print('[session-flush] Session index cleared.')
-"
-
-# ─────────────────────────────────────────────
-# STEP 5: Prune archives older than 30 days
-# ─────────────────────────────────────────────
-find "$SESSIONS_DIR" -name "*.jsonl.deleted.*" -mtime +30 -delete 2>/dev/null && \
-    echo "[session-flush] Pruned old archives."
-
-# Print the output path so the calling agent can read it
-echo "FLUSH_CHAT_LOG=$OUT_FILE"
-echo "[session-flush] Done."
+echo "[nightly-flush] Written: $OUT_FILE"
