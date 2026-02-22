@@ -80,11 +80,13 @@ CLASSIFICATION:
 
 3. APPROVAL REQUIRED (needs Josh to approve first):
    - Any of these keywords: budget, cost, price, invoice, cancel, churn, unhappy, frustrated, problem, broken, not working, urgent, asap, escalate, deadline, refund
-   - First email from a new contact we've never replied to
+   - client slug is "new_contact" (email address not in any known client or lead record)
+   - First email from a sender we have no prior sent history with
    - Any legal or contractual question
    - Client expressing dissatisfaction
-   → Draft reply → PATCH status=awaiting_approval
+   → Draft a warm holding reply → PATCH status=awaiting_approval
    → Send approval card to Telegram (Approve / Adjust / Hold)
+   → For new_contact: include note in card "⚠️ New contact — not in client list. Review before sending."
 
 4. ROUTE TO JOSH (do not draft — escalate only):
    - Pricing discussions

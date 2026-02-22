@@ -34,17 +34,19 @@ fi
 # Fall back to anon key if service key unavailable
 INSERT_KEY="${SERVICE_KEY:-$ANON_KEY}"
 
-# Senders to monitor
-SENDER_FILTER="from:riaan@ascendlc.co.za OR from:andre@ascendlc.co.za OR from:rapizo92@gmail.com OR from:racetechnik010@gmail.com"
+# Internal addresses to exclude — prevents Sophia from processing her own sent mail
+# or internal team messages. Add amalfiai.com addresses here.
+EXCLUDE_FILTER="-from:sophia@amalfiai.com -from:alex@amalfiai.com -from:josh@amalfiai.com -from:salah@amalfiai.com -from:noreply -from:no-reply -from:mailer-daemon"
 
 # ── Step 1: search for emails ─────────────────────────────────────────────────
-# PRIMARY: unread emails from monitored senders
-RAW=$(gog gmail search "(is:unread) ($SENDER_FILTER)" --account "$ACCOUNT" --max 20 2>/dev/null || true)
+# PRIMARY: all unread emails in Sophia's inbox (any sender, external or internal test)
+# Excludes internal Amalfi AI addresses and automated mailers.
+RAW=$(gog gmail search "is:unread in:inbox $EXCLUDE_FILTER" --account "$ACCOUNT" --max 20 2>/dev/null || true)
 
-# FALLBACK: also search last 2 days regardless of read status
-# Catches emails that were read before the cron could detect them (e.g. opened on phone)
-# The gmail_thread_id UNIQUE constraint + ON CONFLICT DO NOTHING prevents double-insertion.
-RAW_RECENT=$(gog gmail search "($SENDER_FILTER) newer_than:2d" --account "$ACCOUNT" --max 20 2>/dev/null || true)
+# FALLBACK: last 2 days in inbox regardless of read status
+# Catches emails opened on phone before cron ran.
+# gmail_thread_id UNIQUE constraint + ON CONFLICT DO NOTHING prevents double-insertion.
+RAW_RECENT=$(gog gmail search "in:inbox newer_than:2d $EXCLUDE_FILTER" --account "$ACCOUNT" --max 20 2>/dev/null || true)
 
 # Merge: combine both results (dedup happens at DB level via gmail_thread_id)
 if [[ -n "$RAW_RECENT" ]] && ! echo "$RAW_RECENT" | grep -qi "no results\|no messages\|0 results"; then
@@ -67,13 +69,46 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 INSERT_KEY   = os.environ["INSERT_KEY"]
 ACCOUNT      = os.environ["ACCOUNT"]
 
-# Client slug map — keyed on the raw sender address
-CLIENT_MAP = {
+# Static fallback client map — keyed on sender address
+STATIC_CLIENT_MAP = {
     "riaan@ascendlc.co.za":     "ascend_lc",
     "andre@ascendlc.co.za":     "ascend_lc",
     "rapizo92@gmail.com":        "favorite_logistics",
     "racetechnik010@gmail.com": "race_technik",
 }
+
+def build_client_map():
+    """
+    Build client map from Supabase leads table + static fallback.
+    Maps email → client_slug (derived from company name if available).
+    Any new lead added via /newlead will automatically be recognised.
+    """
+    import requests as _req, re as _re
+    client_map = dict(STATIC_CLIENT_MAP)
+    try:
+        r = _req.get(
+            "%s/rest/v1/leads?select=email,company,status&limit=200" % SUPABASE_URL,
+            headers={'apikey': INSERT_KEY, 'Authorization': 'Bearer %s' % INSERT_KEY},
+            timeout=10
+        )
+        if r.status_code == 200:
+            for lead in r.json():
+                email = (lead.get('email') or '').lower().strip()
+                company = (lead.get('company') or '').strip()
+                if not email:
+                    continue
+                # Derive a slug from company name, or use email domain
+                if company:
+                    slug = _re.sub(r'[^a-z0-9]+', '_', company.lower()).strip('_')
+                else:
+                    slug = email.split('@')[0]
+                if email not in client_map:
+                    client_map[email] = slug
+    except Exception:
+        pass  # fall back to static map on error
+    return client_map
+
+CLIENT_MAP = build_client_map()
 
 def get_client_slug(raw_from):
     """Extract email address and map to client slug."""
@@ -84,7 +119,7 @@ def get_client_slug(raw_from):
     for addr, slug in CLIENT_MAP.items():
         if addr in email:
             return slug
-    return "unknown"
+    return "new_contact"  # unknown = treat as new contact, not silently ignored
 
 # ── Parse thread IDs ──────────────────────────────────────────────────────────
 thread_ids = re.findall(r'thread_id:\s*(\S+)', RAW, re.IGNORECASE)
