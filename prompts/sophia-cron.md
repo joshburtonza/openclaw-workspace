@@ -110,12 +110,17 @@ WRITING RULES:
 
 ━━━ STEP 5 — PATCH DATABASE ━━━
 
+Assess the sender's sentiment from the email tone before patching:
+- "positive" — happy, grateful, enthusiastic
+- "neutral" — routine, informational, no strong tone
+- "at_risk" — frustrated, cancellation language, unhappy, urgent
+
 For AUTO (auto_pending):
    curl -s -X PATCH "https://afmpbtynucpbglwtbfuz.supabase.co/rest/v1/email_queue?id=eq.[EMAIL_ID]" \
      -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ" \
      -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ" \
      -H "Content-Type: application/json" \
-     -d '{"status":"auto_pending","scheduled_send_at":"[ISO_30MIN_FROM_NOW]","requires_approval":false,"analysis":{"draft_body":"[DRAFT]","draft_subject":"[DRAFT_SUBJECT]","auto_approved":true},"updated_at":"[ISO_NOW]"}'
+     -d '{"status":"auto_pending","scheduled_send_at":"[ISO_30MIN_FROM_NOW]","requires_approval":false,"analysis":{"draft_body":"[DRAFT]","draft_subject":"[DRAFT_SUBJECT]","auto_approved":true,"sentiment":"[positive|neutral|at_risk]","client_slug":"[CLIENT_SLUG]"},"updated_at":"[ISO_NOW]"}'
 
    Then send FYI card:
    bash /Users/henryburton/.openclaw/workspace-anthropic/telegram-send-approval.sh fyi "[EMAIL_ID]" "[CLIENT_SLUG]" "[SUBJECT]" "[FROM_EMAIL]" "[DRAFT_BODY]" "[ISO_30MIN_FROM_NOW]"
@@ -125,10 +130,23 @@ For APPROVAL REQUIRED (awaiting_approval):
      -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ" \
      -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ" \
      -H "Content-Type: application/json" \
-     -d '{"status":"awaiting_approval","requires_approval":true,"analysis":{"draft_body":"[DRAFT]","draft_subject":"[DRAFT_SUBJECT]"},"updated_at":"[ISO_NOW]"}'
+     -d '{"status":"awaiting_approval","requires_approval":true,"analysis":{"draft_body":"[DRAFT]","draft_subject":"[DRAFT_SUBJECT]","sentiment":"[positive|neutral|at_risk]","client_slug":"[CLIENT_SLUG]"},"updated_at":"[ISO_NOW]"}'
 
    Then send approval card:
    bash /Users/henryburton/.openclaw/workspace-anthropic/telegram-send-approval.sh "[EMAIL_ID]" "[CLIENT_SLUG]" "[SUBJECT]" "[FROM_EMAIL]" "[EMAIL_BODY]" "[DRAFT_BODY]"
+
+━━━ STEP 5b — NEW CONTACT AUTO-ENROL ━━━
+
+If client slug is "new_contact", immediately INSERT the sender into the leads table so they appear in Mission Control. Extract first/last name from the email From field if available (e.g. "John Smith <john@example.com>").
+
+   curl -s -X POST "https://afmpbtynucpbglwtbfuz.supabase.co/rest/v1/leads" \
+     -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ" \
+     -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ" \
+     -H "Content-Type: application/json" \
+     -H "Prefer: resolution=ignore-duplicates" \
+     -d '{"first_name":"[FIRST]","last_name":"[LAST_OR_NULL]","email":"[FROM_EMAIL_ADDRESS]","source":"inbound_email","status":"new","assigned_to":"Josh","notes":"Inbound email: [SUBJECT] ([DATE])"}'
+
+   Skip this step if client is NOT new_contact (existing client, no lead insert needed).
 
 ━━━ STEP 6 — UPDATE CLIENT NOTES ━━━
 

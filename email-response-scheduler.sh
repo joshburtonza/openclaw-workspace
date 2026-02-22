@@ -61,7 +61,7 @@ fi
 
 export ROWS
 python3 - <<'PY'
-import json, os, subprocess, datetime
+import json, os, subprocess, datetime, requests
 
 SUPABASE_URL=os.environ['SUPABASE_URL']
 ANON_KEY=os.environ['API_KEY']
@@ -170,6 +170,41 @@ for r in rows:
             'last_error': None,
             'analysis': analysis_out,
         })
+
+        # ── Post-send: update client sentiment + notes ────────────────────────
+        client_slug = analysis_out.get('client_slug') or analysis.get('client_slug') or ''
+        sentiment   = analysis_out.get('sentiment') or analysis.get('sentiment') or ''
+        if client_slug and client_slug not in ('unknown', 'new_contact', ''):
+            try:
+                # Build a brief dated note entry
+                import datetime as _dt
+                today = _dt.datetime.utcnow().strftime('%Y-%m-%d')
+                note_entry = f"[{today}] Email sent: {subj}"
+
+                # Fetch existing notes first
+                notes_resp = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/clients?slug=eq.{client_slug}&select=notes,sentiment",
+                    headers={'apikey': ANON_KEY, 'Authorization': f'Bearer {ANON_KEY}'},
+                    timeout=10
+                )
+                existing = notes_resp.json()[0] if notes_resp.status_code == 200 and notes_resp.json() else {}
+                old_notes = existing.get('notes') or ''
+
+                # Prepend new entry, keep under 1000 chars
+                combined = (note_entry + '\n' + old_notes).strip()[:1000]
+
+                update_payload = {'notes': combined, 'updated_at': sent_ts}
+                if sentiment in ('positive', 'neutral', 'at_risk'):
+                    update_payload['sentiment'] = sentiment
+
+                requests.patch(
+                    f"{SUPABASE_URL}/rest/v1/clients?slug=eq.{client_slug}",
+                    headers={'apikey': ANON_KEY, 'Authorization': f'Bearer {ANON_KEY}',
+                             'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
+                    json=update_payload, timeout=10
+                )
+            except Exception:
+                pass  # non-fatal — email is already sent
 
     except subprocess.CalledProcessError as e:
         patch(email_id, {
