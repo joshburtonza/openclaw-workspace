@@ -11,9 +11,9 @@
       <string>/Users/henryburton/.openclaw/workspace-anthropic/telegram-callback-poller.sh</string>
     </array>
 
-    <!-- Every 30 seconds for responsive chat -->
-    <key>StartInterval</key>
-    <integer>30</integer>
+    <!-- Script loops internally via long-polling (timeout=25s) — KeepAlive restarts on exit -->
+    <key>KeepAlive</key>
+    <true/>
 
     <key>RunAtLoad</key>
     <true/>

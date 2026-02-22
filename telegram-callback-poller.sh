@@ -1,14 +1,16 @@
 #!/bin/bash
 # telegram-callback-poller.sh
-# Poll Telegram getUpdates for:
+# Continuous long-polling service for Telegram updates:
 #   - Inline button callbacks (approve/hold/adjust email drafts)
 #   - Text commands:
 #       /newlead [first] [last] <email> [company]  → insert into leads table
 #       /ooo [reason]                               → set Sophia OOO mode
 #       /available                                  → clear Sophia OOO mode
+#       /remind <time> <desc>                       → set a timed reminder
 # Keeps state in a stable file (NOT /tmp — that resets between isolated sessions).
+# Runs as a KeepAlive LaunchAgent — loops internally via long-polling (timeout=25s).
 
-set -euo pipefail
+set -uo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -20,25 +22,39 @@ SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 ANON_KEY="${SUPABASE_ANON_KEY:-}"
 SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 
-# Use workspace dir so offset survives between isolated OpenClaw sessions
+# Use workspace dir so offset survives between restarts
 OFFSET_FILE="/Users/henryburton/.openclaw/workspace-anthropic/tmp/telegram_updates_offset"
 mkdir -p "$(dirname "$OFFSET_FILE")"
-OFFSET=""
-if [[ -f "$OFFSET_FILE" ]]; then
-  OFFSET=$(cat "$OFFSET_FILE" || true)
-fi
 
 JOSH_BOT_USERNAME="${JOSH_BOT_USERNAME:-JoshAmalfiBot}"
+TG_API="https://api.telegram.org/bot${BOT_TOKEN}"
 
-URL="https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?timeout=0"
-if [[ -n "$OFFSET" ]]; then
-  URL+="&offset=${OFFSET}"
-fi
+# ── Continuous long-polling loop ──────────────────────────────────────────────
+while true; do
 
-RESP=$(curl -s "$URL")
-export RESP OFFSET_FILE BOT_TOKEN SUPABASE_URL ANON_KEY SERVICE_KEY JOSH_BOT_USERNAME
+  # Read current offset each iteration (Python updates it after processing)
+  OFFSET=""
+  if [[ -f "$OFFSET_FILE" ]]; then
+    OFFSET=$(cat "$OFFSET_FILE" 2>/dev/null || true)
+  fi
 
-python3 - <<'PY'
+  # Long-poll: timeout=25 — server holds connection until update arrives or 25s passes
+  URL="${TG_API}/getUpdates?timeout=25&allowed_updates=message,callback_query"
+  if [[ -n "$OFFSET" ]]; then
+    URL+="&offset=${OFFSET}"
+  fi
+
+  # --max-time 35 gives a 10s buffer beyond the server's 25s hold
+  RESP=$(curl -s --max-time 35 "$URL") || RESP=""
+
+  if [[ -z "$RESP" ]]; then
+    sleep 5
+    continue
+  fi
+
+  export RESP OFFSET_FILE BOT_TOKEN SUPABASE_URL ANON_KEY SERVICE_KEY JOSH_BOT_USERNAME
+
+  python3 - <<'PY' || true
 import json, os, subprocess, sys, re
 import requests
 
@@ -541,3 +557,5 @@ if max_update_id is not None:
     with open(os.environ['OFFSET_FILE'], 'w') as f:
         f.write(str(max_update_id + 1))
 PY
+
+done

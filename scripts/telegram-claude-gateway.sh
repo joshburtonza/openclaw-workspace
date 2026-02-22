@@ -95,6 +95,10 @@ fi
 SYSTEM_PROMPT=$(cat "$SYSTEM_PROMPT_FILE" 2>/dev/null || echo "You are Claude, Amalfi AI's AI assistant.")
 TODAY=$(date '+%A, %d %B %Y %H:%M SAST')
 
+# Load persistent memory context
+LONG_TERM_MEMORY=$(cat "$WS/memory/MEMORY.md" 2>/dev/null || echo "")
+CURRENT_STATE=$(cat "$WS/CURRENT_STATE.md" 2>/dev/null || echo "")
+
 # Inject group chat context
 if [[ -n "$GROUP_HISTORY_FILE" ]]; then
   GROUP_CONTEXT="
@@ -118,18 +122,29 @@ else
   GROUP_CONTEXT=""
 fi
 
+MEMORY_BLOCK=""
+if [[ -n "$LONG_TERM_MEMORY" ]]; then
+  MEMORY_BLOCK="
+=== LONG-TERM MEMORY ===
+${LONG_TERM_MEMORY}
+
+=== CURRENT SYSTEM STATE ===
+${CURRENT_STATE}
+"
+fi
+
 if [[ -n "$HISTORY" ]]; then
   FULL_PROMPT="${SYSTEM_PROMPT}${GROUP_CONTEXT}
 Today: ${TODAY}
-
-Conversation history:
+${MEMORY_BLOCK}
+=== RECENT CONVERSATION ===
 ${HISTORY}
 
 Josh: ${USER_MSG}"
 else
   FULL_PROMPT="${SYSTEM_PROMPT}${GROUP_CONTEXT}
 Today: ${TODAY}
-
+${MEMORY_BLOCK}
 Josh: ${USER_MSG}"
 fi
 
@@ -200,6 +215,15 @@ PY
     echo "{\"ts\":\"${TS}\",\"role\":\"JoshAmalfiBot\",\"is_bot\":true,\"message\":$(echo "$RESPONSE" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" >> "$GROUP_HISTORY_FILE"
   else
     echo "{\"role\":\"Claude\",\"message\":$(echo "$RESPONSE" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" >> "$HISTORY_FILE"
+
+    # Append to daily conversation log (feeds weekly-memory.sh distillation)
+    TODAY_LOG="$WS/memory/$(date '+%Y-%m-%d').md"
+    {
+      echo ""
+      echo "### $(date '+%H:%M SAST') — Telegram"
+      echo "**Josh:** $USER_MSG"
+      echo "**Claude:** $RESPONSE"
+    } >> "$TODAY_LOG"
   fi
 else
   tg_send "_(no response)_"
