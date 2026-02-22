@@ -187,14 +187,18 @@ def handle_available(chat_id):
 # ── Handle /help command ──────────────────────────────────────────────────────
 def handle_help(chat_id):
     tg_send(chat_id,
-        "<b>OpenClaw Commands</b>\n\n"
-        "📋 <b>Leads</b>\n"
-        "/newlead [Name] email@co.com [Company]\n\n"
-        "⏸ <b>OOO</b>\n"
+        "<b>Amalfi AI — Claude Code</b>\n\n"
+        "💬 <b>Just chat</b> — type anything, Claude will respond\n"
+        "Examples:\n"
+        "• \"What emails are pending approval?\"\n"
+        "• \"Draft a follow-up for Riaan\"\n"
+        "• \"Set me as OOO tomorrow\"\n"
+        "• \"What did we push to QMS Guard this week?\"\n\n"
+        "📋 <b>Commands</b>\n"
+        "/newlead [Name] email@co.com [Company]\n"
         "/ooo [reason] — Sophia holds all drafts\n"
         "/available — Resume normal ops\n\n"
-        "✅ <b>Email approvals</b> — tap the buttons on approval cards\n\n"
-        "Everything else shows in Mission Control."
+        "✅ <b>Email approvals</b> — tap the buttons on cards"
     )
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
@@ -274,7 +278,7 @@ for u in updates:
     elif text_lower.startswith('/help') or text_lower == '/start':
         handle_help(chat_id)
 
-    # Check for pending adjust reply
+    # Check for pending adjust reply, then fall through to Claude gateway
     else:
         pending_file = f"/Users/henryburton/.openclaw/workspace-anthropic/tmp/telegram_pending_adjust_{chat_id}"
         if os.path.exists(pending_file):
@@ -282,10 +286,23 @@ for u in updates:
                 with open(pending_file) as f:
                     email_id = f.read().strip()
                 os.remove(pending_file)
-                tg_send(chat_id, f'✏️ Got it. Queuing adjust for email {email_id[:8]}…\n(Sophia will regenerate and send a new approval card)')
-                # TODO: trigger regenerate script
+                # Pass adjust request to Claude gateway for real regeneration
+                subprocess.Popen([
+                    'bash',
+                    '/Users/henryburton/.openclaw/workspace-anthropic/scripts/telegram-claude-gateway.sh',
+                    str(chat_id),
+                    f'Adjust the email draft for email_id={email_id}. The requested change: {text}',
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
+        else:
+            # Free-text message → route to Claude Code gateway
+            subprocess.Popen([
+                'bash',
+                '/Users/henryburton/.openclaw/workspace-anthropic/scripts/telegram-claude-gateway.sh',
+                str(chat_id),
+                text,
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 # advance offset
 if max_update_id is not None:
