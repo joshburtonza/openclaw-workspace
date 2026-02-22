@@ -31,13 +31,12 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting $JOB_NAME" >> "$LOG"
 # Unset CLAUDECODE so this can run outside of an active Claude session
 unset CLAUDECODE
 
-# Run Claude with full tool access (Bash, Read, Write, Glob, Grep, WebFetch)
-# --dangerously-skip-permissions: needed for unattended runs (no interactive prompts)
+# Run Claude with full tool access — pipe prompt via stdin to avoid shell quoting issues
 claude --print \
   --dangerously-skip-permissions \
   --model claude-sonnet-4-6 \
   --add-dir "$WS" \
-  "$(cat "$PROMPT_FILE")" \
+  < "$PROMPT_FILE" \
   >> "$LOG" 2>&1
 
 EXIT_CODE=$?

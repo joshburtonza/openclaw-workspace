@@ -94,11 +94,14 @@ tg_typing
 
 # ── Run Claude ───────────────────────────────────────────────────────────────
 unset CLAUDECODE
+PROMPT_TMP=$(mktemp /tmp/tg-prompt-XXXXXX.txt)
+echo "$FULL_PROMPT" > "$PROMPT_TMP"
 RESPONSE=$(claude --print \
   --dangerously-skip-permissions \
   --model claude-sonnet-4-6 \
   --add-dir "$WS" \
-  "$FULL_PROMPT" 2>/dev/null)
+  < "$PROMPT_TMP" 2>/dev/null)
+rm -f "$PROMPT_TMP"
 
 # ── Send response back to Telegram ───────────────────────────────────────────
 if [[ -n "$RESPONSE" ]]; then
