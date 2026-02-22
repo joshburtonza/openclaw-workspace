@@ -430,6 +430,14 @@ for u in updates:
     JOSH_BOT_USERNAME = os.environ.get('JOSH_BOT_USERNAME', 'JoshAmalfiBot')
     WS = '/Users/henryburton/.openclaw/workspace-anthropic'
 
+    # ── Private chat: persist chat_id so proactive scripts can reach Josh ────
+    if not is_group:
+        try:
+            with open(f"{WS}/tmp/josh_private_chat_id", 'w') as _cf:
+                _cf.write(str(chat_id))
+        except Exception:
+            pass
+
     # ── Group chat: log ALL messages to shared history ────────────────────────
     if is_group:
         import datetime as _dt

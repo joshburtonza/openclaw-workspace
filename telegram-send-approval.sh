@@ -25,7 +25,8 @@ if [[ "${1:-}" == "fyi" ]]; then
   _ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
   if [[ -f "$_ENV_FILE" ]]; then source "$_ENV_FILE"; fi
   BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-  CHAT_ID="7584896900"
+  _CHAT_ID_FILE="/Users/henryburton/.openclaw/workspace-anthropic/tmp/josh_private_chat_id"
+  CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-$(cat "$_CHAT_ID_FILE" 2>/dev/null || echo "7584896900")}"
   SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
   ANON_KEY="${SUPABASE_ANON_KEY:-}"
 
@@ -112,7 +113,8 @@ fi
 ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-CHAT_ID="7584896900"
+_CHAT_ID_FILE="/Users/henryburton/.openclaw/workspace-anthropic/tmp/josh_private_chat_id"
+CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-$(cat "$_CHAT_ID_FILE" 2>/dev/null || echo "7584896900")}"
 
 SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 ANON_KEY="${SUPABASE_ANON_KEY:-}"

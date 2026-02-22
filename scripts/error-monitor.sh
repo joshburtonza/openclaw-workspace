@@ -14,7 +14,8 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-CHAT_ID="7584896900"
+_CHAT_ID_FILE="/Users/henryburton/.openclaw/workspace-anthropic/tmp/josh_private_chat_id"
+CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-$(cat "$_CHAT_ID_FILE" 2>/dev/null || echo "7584896900")}"
 
 if [[ -z "$BOT_TOKEN" ]]; then
   echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") ERROR: No TELEGRAM_BOT_TOKEN set" >&2

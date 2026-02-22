@@ -14,7 +14,8 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 export SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 export SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY}"
 export BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
-export CHAT_ID="7584896900"
+_CHAT_ID_FILE="$WORKSPACE/tmp/josh_private_chat_id"
+export CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-$(cat "$_CHAT_ID_FILE" 2>/dev/null || echo "7584896900")}"
 ACCOUNT="josh@amalfiai.com"
 
 # State file: tracks which events we've already alerted about
