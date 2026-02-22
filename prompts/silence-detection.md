@@ -26,7 +26,7 @@ Note: The 3-day follow-up cron handles proactive check-ins. This cron handles AL
 ━━━ SEND TELEGRAM ALERTS ━━━
 
 Read the chat_id from file (set when Josh last messaged the bot):
-   JOSH_CHAT_ID=$(cat /Users/henryburton/.openclaw/workspace-anthropic/tmp/josh_private_chat_id 2>/dev/null || echo "7584896900")
+   JOSH_CHAT_ID=$(cat /Users/henryburton/.openclaw/workspace-anthropic/tmp/josh_private_chat_id 2>/dev/null || echo "1140320036")
 
 For 7-14 day silence:
    curl -s -X POST "https://api.telegram.org/bot$(cat /Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler | grep TELEGRAM_BOT_TOKEN | cut -d= -f2)/sendMessage" \

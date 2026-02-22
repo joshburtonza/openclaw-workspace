@@ -15,7 +15,7 @@ export SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 export SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY}"
 export BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
 _CHAT_ID_FILE="$WORKSPACE/tmp/josh_private_chat_id"
-export CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-$(cat "$_CHAT_ID_FILE" 2>/dev/null || echo "7584896900")}"
+export CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-$(cat "$_CHAT_ID_FILE" 2>/dev/null || echo "1140320036")}"
 ACCOUNT="josh@amalfiai.com"
 
 # State file: tracks which events we've already alerted about

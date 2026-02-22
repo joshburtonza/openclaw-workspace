@@ -17,7 +17,7 @@ SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 _CHAT_ID_FILE="/Users/henryburton/.openclaw/workspace-anthropic/tmp/josh_private_chat_id"
-CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-$(cat "$_CHAT_ID_FILE" 2>/dev/null || echo "7584896900")}"
+CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-$(cat "$_CHAT_ID_FILE" 2>/dev/null || echo "1140320036")}"
 ACCOUNT="alex@amalfiai.com"
 
 export SUPABASE_URL SUPABASE_KEY BOT_TOKEN CHAT_ID ACCOUNT
