@@ -1,0 +1,50 @@
+# Credentials — NEVER commit these
+*.json
+!package.json
+!package-lock.json
+!tsconfig*.json
+!components.json
+!vitest.config.json
+amalfi-ai-automation-key.json
+gmail-oauth-credentials.json
+.env
+.env.*
+*.pem
+*.key
+*-key.json
+*credentials*.json
+*secret*.json
+.mission-control-keys
+audit_log.jsonl
+*.jsonl
+
+# Keys and tokens in scripts (commit scripts but strip secrets separately)
+# Keep shell scripts but ensure tokens are in env vars going forward
+
+# Node
+node_modules/
+
+# Build artifacts
+dist/
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime artifacts
+out/
+tmp/
+outgoing-audio/
+memory/
+ai-brief-archive/
+
+# Logs
+*.log
+
+# Nested git repos (they have their own GitHub repos)
+awesome-openclaw-skills/
+mission-control-hub/
+qms-guard/
+favorite-flow-9637aff2/
+chrome-auto-care
