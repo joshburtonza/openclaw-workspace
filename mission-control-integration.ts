@@ -247,25 +247,9 @@ async function startPolling() {
     }
 
     try {
-      // Get pending emails
-      const { data: pendingEmails } = await supabase
-        .from('email_queue')
-        .select('*')
-        .eq('status', 'pending')
-        .limit(10);
-
-      for (const email of pendingEmails || []) {
-        await analyzeEmailWithSophia(
-          email.id,
-          email.from_email,
-          email.subject,
-          email.body,
-          email.client
-        );
-      }
-
-      // NOTE: Approved email sending is handled by email-response-scheduler.sh (LaunchAgent).
-      // Do NOT process approved rows here — the bash scheduler owns that step.
+      // NOTE: Email analysis is now handled by com.amalfiai.sophia-cron (LaunchAgent).
+      // mission-control-integration.ts no longer processes pending emails.
+      // Keeping this loop alive only for kill-switch monitoring and future webhook support.
     } catch (error) {
       console.error('[POLLING] Error:', error);
     }

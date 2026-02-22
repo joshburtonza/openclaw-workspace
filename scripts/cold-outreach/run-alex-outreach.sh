@@ -13,7 +13,7 @@ set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 # Load secrets from env file
-ENV_FILE="$(dirname "$0")/../.env.scheduler"
+ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 [[ -f "$ENV_FILE" ]] || ENV_FILE="$(dirname "$0")/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 

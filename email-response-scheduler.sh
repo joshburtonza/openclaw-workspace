@@ -14,7 +14,7 @@ ACCOUNT="sophia@amalfiai.com"
 CC="josh@amalfiai.com,salah@amalfiai.com"
 
 # Load service role key from secrets file (bypasses RLS so scheduler can read status=approved rows)
-ENV_FILE="$(dirname "$0")/.env.scheduler"
+ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"

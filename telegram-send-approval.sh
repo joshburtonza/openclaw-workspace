@@ -22,7 +22,7 @@ if [[ "${1:-}" == "fyi" ]]; then
   fi
 
   # Load secrets from env file
-  _ENV_FILE="$(dirname "$0")/.env.scheduler"
+  _ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
   if [[ -f "$_ENV_FILE" ]]; then source "$_ENV_FILE"; fi
   BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
   CHAT_ID="1140320036"
@@ -109,7 +109,7 @@ if [[ -z "$EMAIL_ID" || -z "$SUBJECT" || -z "$FROM_EMAIL" ]]; then
 fi
 
 # Load secrets from env file
-ENV_FILE="$(dirname "$0")/.env.scheduler"
+ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="1140320036"

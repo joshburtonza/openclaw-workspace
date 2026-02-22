@@ -10,7 +10,7 @@ set -euo pipefail
 
 SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 # Load service role key from env file
-ENV_FILE="$(dirname "$0")/.env.scheduler"
+ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 SCHEDULER="/Users/henryburton/.openclaw/workspace-anthropic/email-response-scheduler.sh"

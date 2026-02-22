@@ -10,7 +10,7 @@ FROM_EMAIL="${4}"
 REASON="${5}"
 
 # Load secrets from env file
-ENV_FILE="$(dirname "$0")/.env.scheduler"
+ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="1140320036"

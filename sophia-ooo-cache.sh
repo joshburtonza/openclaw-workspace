@@ -6,7 +6,7 @@
 
 SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 # Load service role key from env file
-ENV_FILE="$(dirname "$0")/.env.scheduler"
+ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 AVAIL_FILE="/Users/henryburton/.openclaw/workspace-anthropic/josh-availability.md"
