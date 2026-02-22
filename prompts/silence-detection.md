@@ -20,15 +20,18 @@ Note: The 3-day follow-up cron handles proactive check-ins. This cron handles AL
 
 ━━━ SEND TELEGRAM ALERTS ━━━
 
+Read the chat_id from file (set when Josh last messaged the bot):
+   JOSH_CHAT_ID=$(cat /Users/henryburton/.openclaw/workspace-anthropic/tmp/josh_private_chat_id 2>/dev/null || echo "7584896900")
+
 For 7-14 day silence:
-   curl -s -X POST "https://api.telegram.org/bot8332962158:AAFZysktzNRAFR4tD2fjB08Afd3yNwpZ8lE/sendMessage" \
+   curl -s -X POST "https://api.telegram.org/bot$(cat /Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler | grep TELEGRAM_BOT_TOKEN | cut -d= -f2)/sendMessage" \
      -H "Content-Type: application/json" \
-     -d '{"chat_id":"1140320036","text":"⚠️ [CLIENT_NAME] has been silent for [DAYS] days. The 3-day follow-up may have been held — check email queue."}'
+     -d "{\"chat_id\":\"$JOSH_CHAT_ID\",\"text\":\"⚠️ [CLIENT_NAME] has been silent for [DAYS] days. The 3-day follow-up may have been held — check email queue.\"}"
 
 For 14+ day silence:
-   curl -s -X POST "https://api.telegram.org/bot8332962158:AAFZysktzNRAFR4tD2fjB08Afd3yNwpZ8lE/sendMessage" \
+   curl -s -X POST "https://api.telegram.org/bot$(cat /Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler | grep TELEGRAM_BOT_TOKEN | cut -d= -f2)/sendMessage" \
      -H "Content-Type: application/json" \
-     -d '{"chat_id":"1140320036","text":"🚨 CHURN RISK: [CLIENT_NAME] has been silent for [DAYS] days. Josh — direct outreach recommended."}'
+     -d "{\"chat_id\":\"$JOSH_CHAT_ID\",\"text\":\"🚨 CHURN RISK: [CLIENT_NAME] has been silent for [DAYS] days. Josh — direct outreach recommended.\"}"
 
 ━━━ HARD RULES ━━━
 - NEVER use gog gmail search — use email_queue DB only.
