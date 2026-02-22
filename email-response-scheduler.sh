@@ -26,14 +26,32 @@ export SUPABASE_URL API_KEY ACCOUNT CC
 
 json_escape() { python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'; }
 
-# Pull approved + auto_pending rows whose veto window has passed (limit 10 per run)
+# Pull approved rows + auto_pending rows (filter by schedule in Python to avoid PostgREST nested-and quirks)
 NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-ROWS=$(curl -s -G "${SUPABASE_URL}/rest/v1/email_queue" \
-  --data-urlencode "or=(status.eq.approved,and(status.eq.auto_pending,scheduled_send_at.lte.${NOW_ISO}))" \
-  --data-urlencode "select=id,from_email,subject,analysis,gmail_thread_id" \
+APPROVED=$(curl -s -G "${SUPABASE_URL}/rest/v1/email_queue" \
+  --data-urlencode "status=eq.approved" \
+  --data-urlencode "select=id,from_email,subject,analysis,gmail_thread_id,status,scheduled_send_at" \
   --data-urlencode "order=created_at.asc" \
   --data-urlencode "limit=10" \
   -H "apikey: ${API_KEY}" -H "Authorization: Bearer ${API_KEY}")
+
+AUTO=$(curl -s -G "${SUPABASE_URL}/rest/v1/email_queue" \
+  --data-urlencode "status=eq.auto_pending" \
+  --data-urlencode "scheduled_send_at=lte.${NOW_ISO}" \
+  --data-urlencode "select=id,from_email,subject,analysis,gmail_thread_id,status,scheduled_send_at" \
+  --data-urlencode "order=created_at.asc" \
+  --data-urlencode "limit=10" \
+  -H "apikey: ${API_KEY}" -H "Authorization: Bearer ${API_KEY}")
+
+export APPROVED AUTO
+ROWS=$(python3 -c "
+import json, os, sys
+a = json.loads(os.environ.get('APPROVED','[]'))
+b = json.loads(os.environ.get('AUTO','[]'))
+if not isinstance(a, list): a = []
+if not isinstance(b, list): b = []
+print(json.dumps(a + b))
+")
 
 COUNT=$(echo "$ROWS" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')
 if [[ "$COUNT" == "0" ]]; then
