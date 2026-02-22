@@ -34,9 +34,9 @@ fi
 # Fall back to anon key if service key unavailable
 INSERT_KEY="${SERVICE_KEY:-$ANON_KEY}"
 
-# Internal addresses to exclude — prevents Sophia from processing her own sent mail
-# or internal team messages. Add amalfiai.com addresses here.
-EXCLUDE_FILTER="-from:sophia@amalfiai.com -from:alex@amalfiai.com -from:josh@amalfiai.com -from:salah@amalfiai.com -from:noreply -from:no-reply -from:mailer-daemon"
+# Addresses to exclude — only block addresses that would cause loops or noise.
+# DO NOT exclude the whole amalfiai.com domain — alex@ is used for internal testing.
+EXCLUDE_FILTER="-from:sophia@amalfiai.com -from:noreply -from:no-reply -from:mailer-daemon -from:postmaster"
 
 # ── Step 1: search for emails ─────────────────────────────────────────────────
 # PRIMARY: all unread emails in Sophia's inbox (any sender, external or internal test)
@@ -75,6 +75,8 @@ STATIC_CLIENT_MAP = {
     "andre@ascendlc.co.za":     "ascend_lc",
     "rapizo92@gmail.com":        "favorite_logistics",
     "racetechnik010@gmail.com": "race_technik",
+    # Internal test account — maps to ascend_lc for realistic AUTO-tier testing
+    "alex@amalfiai.com":        "ascend_lc",
 }
 
 def build_client_map():
@@ -220,6 +222,8 @@ for tid in thread_ids:
 
 # ── Step 6: also surface any existing pending rows in the DB ─────────────────
 # Catches rows inserted via webhook, direct API, or tests that bypassed Gmail.
+# Excludes loop addresses (sophia@ sending to herself etc).
+LOOP_ADDRESSES = {'sophia@amalfiai.com', 'postmaster@amalfiai.com'}
 import requests as _req
 try:
     _r = _req.get(
@@ -228,6 +232,8 @@ try:
         timeout=10
     )
     db_pending = _r.json() if _r.status_code == 200 else []
+    # Filter out loop/internal-send addresses
+    db_pending = [r for r in db_pending if r.get('from_email','').lower() not in LOOP_ADDRESSES]
 except Exception:
     db_pending = []
 
