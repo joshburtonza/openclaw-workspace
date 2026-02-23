@@ -271,3 +271,28 @@ Sophia's 20-min cron now:
 - `sophia-ai-brief.md` — weekly AI news brief (read by Sophia each run)
 - `ai-brief-archive/` — timestamped archive of weekly briefs
 - `sophia-email-pipeline.md` — full architecture doc (kept current)
+
+---
+
+## Update: 2026-02-23
+
+### Decisions
+- Mission Control production URL is **`amalfi-mission-control.vercel.app`** — bookmark this on mobile. `:8080` is localhost only. `mission-control.amalfiai.com` subdomain DNS not yet pointed at Vercel (worth setting up later).
+- Terminal Full Disk Access was toggled OFF — fixed by Josh (toggled ON). Should stop permission popups.
+
+### Completed
+- macOS Full Disk Access: Terminal + claude + node + python3 all enabled. OpenClaw 2 left OFF (not needed since on Claude Code).
+- Diagnosed heartbeat "ISSUES DETECTED" alerts as false positives: stale approval emails (3 days old) + no weekend commits = normal behaviour, not real failures.
+- Riaan email: Riaan emailed Feb 20 asking for project update. Sophia drafted a reply (asking Riaan to clarify what kind of update he wants), sitting in awaiting_approval queue since Feb 20.
+
+### Blockers / Follow-ups
+- Mission Control UI redesign: Josh shared Vision UI references (deep navy `#0f1535`/`#111c44`, glassmorphism cards, electric blue/teal/purple accents, gradient area charts). Not yet started — waiting for Josh to confirm scope and which repo to work in.
+- `amalfiai.com` DNS → Vercel subdomain for Mission Control not yet configured.
+- Riaan update email still awaiting Josh approval.
+- 9 emails in queue awaiting approval (weekly progress reports + invoice reminders) as of this morning.
+
+### Josh Preferences / Rules
+- Josh references Mission Control at `:8080` when on local Mac; remind him to use Vercel URL on mobile.
+
+### Context
+- Josh shared Morningside AI (his own brand) video transcript about AIOS (AI Operating System methodology): layering Claude Code modules (Context OS, Data OS, Meeting Intelligence, Daily Brief OS, Productivity OS, Capture OS) to automate 60–70% of business tasks. He's actively building this across content, Morningside AI, education, ventures. Enthusiastic about Claude Code over OpenClaw/ClaudeBot for long-term depth.
