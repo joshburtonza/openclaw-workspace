@@ -24,6 +24,84 @@ ENV_FILE="$WS/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+
+# ── /reply wa [contact] [message] command ─────────────────────────────────────
+# Sends a WhatsApp message via the Business Cloud API.
+# Usage: /reply wa ascend_lc Invoice sent — please confirm receipt.
+#        /reply wa +27761234567 Hey, just following up.
+
+if echo "$USER_MSG" | grep -qi '^\s*/reply wa '; then
+  WA_ARGS=$(echo "$USER_MSG" | sed 's|^\s*/reply wa ||i')
+  CONTACT_RAW=$(echo "$WA_ARGS" | awk '{print $1}')
+  WA_TEXT=$(echo "$WA_ARGS" | cut -d' ' -f2-)
+
+  # Resolve contact slug or raw number from contacts.json
+  TO_NUMBER=""
+  CONTACT_DISPLAY=""
+  if echo "$CONTACT_RAW" | grep -qE '^\+?[0-9]{7,}$'; then
+    # Raw number provided
+    TO_NUMBER="$CONTACT_RAW"
+    CONTACT_DISPLAY="$CONTACT_RAW"
+  else
+    # Look up slug in contacts.json
+    CONTACTS_JSON="$WS/data/contacts.json"
+    if [[ -f "$CONTACTS_JSON" ]]; then
+      LOOKUP=$(python3 -c "
+import json, sys
+slug = '${CONTACT_RAW}'.lower()
+data = json.load(open('${CONTACTS_JSON}'))
+for c in data.get('clients', []):
+    if c.get('slug','').lower() == slug or c.get('name','').lower().replace(' ','_') == slug:
+        print(c.get('number','') + '|' + c.get('name',''))
+        sys.exit(0)
+print('|')
+" 2>/dev/null || echo "|")
+      TO_NUMBER="${LOOKUP%%|*}"
+      CONTACT_DISPLAY="${LOOKUP##*|}"
+    fi
+  fi
+
+  tg_send_cmd() {
+    local text="$1"
+    curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+      -H "Content-Type: application/json" \
+      -d "{\"chat_id\":\"${CHAT_ID}\",\"text\":$(echo "$text" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'),\"parse_mode\":\"Markdown\"}" >/dev/null 2>&1 || true
+  }
+
+  if [[ -z "$TO_NUMBER" || -z "$WA_TEXT" || "$TO_NUMBER" == "|" ]]; then
+    tg_send_cmd "⚠️ Usage: \`/reply wa [contact_slug_or_number] [message]\`
+
+Known contacts: $(python3 -c "
+import json
+try:
+    data = json.load(open('$WS/data/contacts.json'))
+    for c in data.get('clients',[]): print('  •', c.get('slug',''), '—', c.get('name',''))
+except: print('  (could not load contacts.json)')
+" 2>/dev/null)"
+    exit 0
+  fi
+
+  if [[ "${WHATSAPP_TOKEN:-REPLACE_WITH_WHATSAPP_ACCESS_TOKEN}" == "REPLACE_WITH_WHATSAPP_ACCESS_TOKEN" || -z "${WHATSAPP_TOKEN:-}" ]]; then
+    tg_send_cmd "⚠️ WhatsApp not configured. Set WHATSAPP_TOKEN and WHATSAPP_PHONE_ID in .env.scheduler."
+    exit 0
+  fi
+
+  WA_RESP=$(curl -s -X POST \
+    "https://graph.facebook.com/v21.0/${WHATSAPP_PHONE_ID}/messages" \
+    -H "Authorization: Bearer ${WHATSAPP_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{\"messaging_product\":\"whatsapp\",\"to\":\"${TO_NUMBER}\",\"type\":\"text\",\"text\":{\"body\":$(echo "$WA_TEXT" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}}")
+
+  WA_OK=$(echo "$WA_RESP" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print('ok' if d.get('messages') else 'fail')" 2>/dev/null || echo "fail")
+
+  if [[ "$WA_OK" == "ok" ]]; then
+    tg_send_cmd "✅ WhatsApp sent to *${CONTACT_DISPLAY:-$TO_NUMBER}*: \"${WA_TEXT}\""
+  else
+    ERR=$(echo "$WA_RESP" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d.get('error',{}).get('message','unknown error'))" 2>/dev/null || echo "unknown error")
+    tg_send_cmd "❌ WhatsApp send failed: ${ERR}"
+  fi
+  exit 0
+fi
 HISTORY_FILE="$WS/tmp/telegram-chat-history.jsonl"
 SYSTEM_PROMPT_FILE="$WS/prompts/telegram-claude-system.md"
 mkdir -p "$WS/tmp"
@@ -98,6 +176,7 @@ TODAY=$(date '+%A, %d %B %Y %H:%M SAST')
 # Load persistent memory context
 LONG_TERM_MEMORY=$(cat "$WS/memory/MEMORY.md" 2>/dev/null || echo "")
 CURRENT_STATE=$(cat "$WS/CURRENT_STATE.md" 2>/dev/null || echo "")
+RESEARCH_INTEL=$(cat "$WS/memory/research-intel.md" 2>/dev/null || echo "")
 
 # Inject group chat context
 if [[ -n "$GROUP_HISTORY_FILE" ]]; then
@@ -130,6 +209,9 @@ ${LONG_TERM_MEMORY}
 
 === CURRENT SYSTEM STATE ===
 ${CURRENT_STATE}
+
+=== STRATEGIC RESEARCH INTELLIGENCE ===
+${RESEARCH_INTEL}
 "
 fi
 

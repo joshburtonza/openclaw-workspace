@@ -130,4 +130,137 @@ for client in missing:
     )
 
 print(f"Done. Missing payments: {[c['name'] for c in missing]}")
+
+# ── INTERNALISATION RISK CHECK ──────────────────────────────────────────────
+
+INTEGRATION_KEYWORDS = [
+    'in-house', 'in house', 'bring it in', 'internal team', 'hire someone',
+    'build internally', 'own the system', 'take over', 'our own developer',
+    'train our', 'training our', 'documentation so we', 'handover',
+    'hand over', 'self-sufficient', 'independent', 'build ourselves',
+    'our developer', 'our team can', 'we can handle', 'no longer need',
+    'manage it ourselves', 'keep it internal', 'reduce dependency',
+]
+
+thirty_days_ago = (now - datetime.timedelta(days=30)).astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+sixty_days_ago  = (now - datetime.timedelta(days=60)).astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+FLAG_MSG = (
+    "[INTERNALISATION RISK] Client may be building internal dependency — "
+    "review scope boundaries and consider proposing a structured retainer renewal "
+    "that reinforces consultant positioning."
+)
+
+internalisation_flags = []
+
+for client in clients:
+    name = client['name']
+    slug = client['slug']
+    reasons = []
+
+    # ── Trigger 1: 2+ emails with integration-pressure keywords in last 30 days
+    try:
+        recent_emails = supa(
+            f"email_queue?client=eq.{slug}"
+            f"&created_at=gte.{thirty_days_ago}"
+            f"&select=subject,body,created_at"
+        )
+        keyword_hits = []
+        for email in (recent_emails or []):
+            text = ((email.get('subject') or '') + ' ' + (email.get('body') or '')).lower()
+            if any(kw in text for kw in INTEGRATION_KEYWORDS):
+                keyword_hits.append(email)
+        if len(keyword_hits) >= 2:
+            reasons.append(f"{len(keyword_hits)} emails with integration-pressure keywords in last 30 days")
+    except Exception as e:
+        print(f"  [warn] keyword check failed for {name}: {e}")
+
+    # ── Trigger 2: month 4+ of retainer AND escalating request volume
+    try:
+        all_entries = supa(f"income_entries?client=eq.{name}&select=month,status")
+        paid_entries = [e for e in (all_entries or []) if e.get('status') in ('paid', 'invoiced')]
+        if paid_entries:
+            earliest = min(e['month'] for e in paid_entries)
+            ey, em = map(int, earliest.split('-'))
+            ny, nm = now.year, now.month
+            months_on_retainer = (ny - ey) * 12 + (nm - em)
+            if months_on_retainer >= 4:
+                recent_count = len(supa(
+                    f"email_queue?client=eq.{slug}"
+                    f"&created_at=gte.{thirty_days_ago}"
+                    f"&select=id"
+                ) or [])
+                prior_count = len(supa(
+                    f"email_queue?client=eq.{slug}"
+                    f"&created_at=gte.{sixty_days_ago}"
+                    f"&created_at=lt.{thirty_days_ago}"
+                    f"&select=id"
+                ) or [])
+                if prior_count > 0 and recent_count > prior_count:
+                    reasons.append(
+                        f"month {months_on_retainer} of retainer with escalating volume "
+                        f"({prior_count} → {recent_count} emails)"
+                    )
+    except Exception as e:
+        print(f"  [warn] tenure/volume check failed for {name}: {e}")
+
+    if reasons:
+        internalisation_flags.append({'client': client, 'reasons': reasons})
+
+# Emit internalisation risk flags
+if internalisation_flags:
+    for flag in internalisation_flags:
+        fname = flag['client']['name']
+        rsns  = '; '.join(flag['reasons'])
+        print(f"  [INTERNALISATION RISK] {fname}: {rsns}")
+        tg(
+            f"🔶 <b>[INTERNALISATION RISK] {fname}</b>\n"
+            f"{FLAG_MSG}\n\n"
+            f"<b>Signals:</b> {rsns}"
+        )
+else:
+    print("No internalisation risk flags raised.")
+
+# ── CONCENTRATION RISK CHECK ─────────────────────────────────────────────────
+# If any single client exceeds 50% of total retainer revenue, emit a warning.
+# Signal designed to fire before a client drifts into dependency territory.
+
+client_totals = {}
+for e in entries:
+    if e.get('status') in ('paid', 'invoiced'):
+        client_name = e.get('client', '')
+        amount = float(e.get('amount') or 0)
+        if client_name:
+            client_totals[client_name] = client_totals.get(client_name, 0) + amount
+
+total_revenue = sum(client_totals.values())
+
+if total_revenue > 0:
+    concentration_flags = []
+    for client_name, amount in client_totals.items():
+        pct = amount / total_revenue * 100
+        if pct > 50:
+            slug = next(
+                (c['slug'] for c in clients if c['name'] == client_name),
+                client_name.lower().replace(' ', '_')
+            )
+            concentration_flags.append((slug, client_name, pct))
+
+    if concentration_flags:
+        for slug, client_name, pct in concentration_flags:
+            warning = (
+                f"⚠️ CONCENTRATION RISK: {slug} = {pct:.0f}% of retainer revenue "
+                f"— portfolio resilience flag"
+            )
+            print(warning)
+            tg(
+                f"⚠️ <b>CONCENTRATION RISK</b>\n"
+                f"<b>{client_name}</b> is <b>{pct:.0f}%</b> of tracked retainer revenue for {month_key}.\n\n"
+                f"Portfolio resilience flag — revenue diversification over depth-of-engagement. "
+                f"Consider whether this client is drifting into dependency territory."
+            )
+    else:
+        print("Concentration check passed — no single client exceeds 50% of retainer revenue.")
+else:
+    print("No retainer revenue recorded this month — skipping concentration check.")
 PY

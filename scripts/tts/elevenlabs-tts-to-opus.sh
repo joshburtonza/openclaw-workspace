@@ -45,12 +45,8 @@ fi
 
 TMP_MP3="/tmp/elevenlabs-$$.mp3"
 
-# JSON encode text safely
-JSON_TEXT=$(python3 - <<'PY'
-import json,sys
-print(json.dumps(sys.stdin.read()))
-PY
-<<<"$TEXT")
+# JSON encode text safely (use -c flag so stdin is available for sys.stdin.read())
+JSON_TEXT=$(python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' <<< "$TEXT")
 
 curl -sS -X POST "https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}?output_format=${OUTPUT_FORMAT}" \
   -H "xi-api-key: ${ELEVENLABS_API_KEY}" \

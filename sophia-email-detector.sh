@@ -194,10 +194,21 @@ for tid in thread_ids:
 
     client = get_client_slug(from_email)
 
+    # ── Formalization signal detection ────────────────────────────────────────
+    # Catches clients probing for employment/integration of Josh out of the agency model.
+    FORMALIZATION_KEYWORDS = [
+        'full-time', 'full time', 'in-house', 'in house', 'employee',
+        'integrate your team', 'bring you on board', 'hire',
+    ]
+    search_text = (subject + ' ' + body).lower()
+    formalization_signal = any(kw in search_text for kw in FORMALIZATION_KEYWORDS)
+
+    initial_analysis = {"formalization_signal": True} if formalization_signal else {}
+
     # INSERT — gmail_thread_id UNIQUE prevents double-insertion at the DB level.
     # If the thread was already inserted (e.g. from a previous run that crashed
     # before mark_read), supa_insert returns None and we still mark as read.
-    row = supa_insert({
+    insert_payload = {
         "gmail_thread_id": tid,
         "from_email":       from_email,
         "to_email":         "sophia@amalfiai.com",
@@ -205,7 +216,10 @@ for tid in thread_ids:
         "body":             body,
         "client":           client,
         "status":           "pending",
-    })
+    }
+    if initial_analysis:
+        insert_payload["analysis"] = initial_analysis
+    row = supa_insert(insert_payload)
 
     # Always mark as read regardless of insert outcome
     mark_read(tid)

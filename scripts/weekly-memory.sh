@@ -6,12 +6,14 @@ set -euo pipefail
 WORKSPACE="/Users/henryburton/.openclaw/workspace-anthropic"
 ENV_FILE="$WORKSPACE/.env.scheduler"
 source "$ENV_FILE"
+source "$WORKSPACE/scripts/lib/task-helpers.sh"
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 unset CLAUDECODE
 
 MEMORY_FILE="$WORKSPACE/memory/MEMORY.md"
 echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") Weekly memory starting"
+TASK_ID=$(task_create "Weekly Memory Update" "Distilling 7 days of logs into MEMORY.md" "weekly-memory" "normal")
 
 # ── Gather last 7 days of daily logs ─────────────────────────────────────────
 LOG_CONTENT=""
@@ -88,4 +90,5 @@ git -C "$WORKSPACE" add memory/MEMORY.md 2>/dev/null || true
 git -C "$WORKSPACE" diff --staged --quiet 2>/dev/null || \
   git -C "$WORKSPACE" commit -m "Weekly memory update $(date '+%Y-%m-%d')" --no-verify 2>/dev/null || true
 
+task_complete "$TASK_ID" "MEMORY.md updated and committed"
 echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") Weekly memory complete"

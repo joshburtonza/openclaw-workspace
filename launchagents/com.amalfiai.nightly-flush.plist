@@ -11,11 +11,11 @@
       <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/nightly-session-flush.sh</string>
     </array>
 
-    <!-- 11:50pm Africa/Johannesburg = 9:50pm UTC -->
+    <!-- 23:50 SAST (launchd uses local time) -->
     <key>StartCalendarInterval</key>
     <dict>
       <key>Hour</key>
-      <integer>21</integer>
+      <integer>23</integer>
       <key>Minute</key>
       <integer>50</integer>
     </dict>

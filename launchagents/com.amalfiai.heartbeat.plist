@@ -13,11 +13,11 @@
       <string>heartbeat</string>
     </array>
 
-    <!-- 12pm Africa/Johannesburg = 10am UTC -->
+    <!-- 12:00 SAST (launchd uses local time) -->
     <key>StartCalendarInterval</key>
     <dict>
       <key>Hour</key>
-      <integer>10</integer>
+      <integer>12</integer>
       <key>Minute</key>
       <integer>0</integer>
     </dict>

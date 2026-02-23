@@ -217,3 +217,199 @@ for r in rows:
             'last_error': f"send failed: {type(e).__name__}: {e}",
         })
 PY
+
+# ── Retainer conversion check (runs once per day) ─────────────────────────────
+WS="/Users/henryburton/.openclaw/workspace-anthropic"
+GATE_FILE="$WS/tmp/retainer-pitch-checked-$(date '+%Y-%m-%d').flag"
+mkdir -p "$WS/tmp"
+
+if [[ -f "$GATE_FILE" ]]; then
+  echo "Retainer conversion check already ran today — skipping."
+  exit 0
+fi
+
+touch "$GATE_FILE"
+# Clean up gate files older than 2 days to avoid accumulation
+find "$WS/tmp" -name "retainer-pitch-checked-*.flag" -mtime +2 -delete 2>/dev/null || true
+
+CLIENT_PROJECTS_FILE="$WS/data/client-projects.json"
+if [[ ! -f "$CLIENT_PROJECTS_FILE" ]]; then
+  echo "No client-projects.json found — skipping retainer check."
+  exit 0
+fi
+
+export SUPABASE_URL API_KEY CLIENT_PROJECTS_FILE WS
+export BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+export CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
+
+python3 - <<'RETAINER_PY'
+import json, os, requests, datetime, subprocess, sys
+
+URL     = os.environ['SUPABASE_URL']
+KEY     = os.environ['API_KEY']
+BOT     = os.environ.get('BOT_TOKEN', '')
+CHAT    = os.environ.get('CHAT_ID', '')
+WS      = os.environ['WS']
+DATA_FILE = os.environ['CLIENT_PROJECTS_FILE']
+
+def supa_get(path):
+    r = requests.get(f"{URL}/rest/v1/{path}",
+        headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}'},
+        timeout=15)
+    r.raise_for_status()
+    return r.json()
+
+def supa_post(path, body, prefer='return=representation'):
+    r = requests.post(f"{URL}/rest/v1/{path}",
+        headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}',
+                 'Content-Type': 'application/json', 'Prefer': prefer},
+        json=body, timeout=15)
+    r.raise_for_status()
+    return r.json() if prefer != 'return=minimal' else None
+
+def tg(text):
+    if not BOT or not CHAT:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT}/sendMessage",
+            json={'chat_id': CHAT, 'text': text, 'parse_mode': 'HTML'},
+            timeout=10)
+    except Exception:
+        pass
+
+today = datetime.date.today()
+data = json.loads(open(DATA_FILE).read())
+clients = data.get('clients', [])
+
+candidates = []
+for c in clients:
+    if c.get('retainer_status') != 'project_only':
+        continue
+    # Never pitch retainer conversion to bd_partner contacts — peer relationship, not vendor/client
+    if c.get('relationship_type') == 'bd_partner':
+        print(f"  {c['slug']}: bd_partner — skipping retainer pitch")
+        continue
+    start_str = c.get('project_start_date')
+    if not start_str:
+        print(f"  {c['slug']}: project_only but no project_start_date — skipping")
+        continue
+    try:
+        start = datetime.date.fromisoformat(start_str)
+    except ValueError:
+        print(f"  {c['slug']}: invalid project_start_date '{start_str}' — skipping")
+        continue
+    days_since = (today - start).days
+    print(f"  {c['slug']}: {days_since} days since project start (status={c['retainer_status']})")
+    if days_since >= 60:
+        candidates.append({**c, 'days_since_start': days_since})
+
+if not candidates:
+    print("Retainer check: no project_only clients at 60+ days.")
+    sys.exit(0)
+
+print(f"Retainer check: {len(candidates)} candidate(s) for conversion pitch.")
+
+for client in candidates:
+    slug = client['slug']
+    name = client['name']
+    email = client.get('email', '')
+    project_type = client.get('project_type', 'the project')
+    days = client['days_since_start']
+
+    if not email:
+        print(f"  {slug}: no email on file — skipping")
+        tg(f"⚠️ <b>Retainer pitch: {name}</b>\nNo email on file. {days} days in, no retainer. Add email to data/client-projects.json.")
+        continue
+
+    # Dedup: skip if a retainer_pitch email already exists in the queue
+    # (awaiting_approval, approved, sending, or sent in the last 30 days)
+    try:
+        cutoff = (today - datetime.timedelta(days=30)).isoformat() + 'T00:00:00Z'
+        existing = supa_get(
+            f"email_queue?client=eq.{slug}"
+            f"&created_at=gte.{cutoff}"
+            f"&select=id,status,analysis"
+        )
+        already_queued = False
+        for row in (existing or []):
+            analysis = row.get('analysis') or {}
+            if isinstance(analysis, str):
+                try:
+                    analysis = json.loads(analysis)
+                except Exception:
+                    analysis = {}
+            if analysis.get('intent') == 'retainer_pitch':
+                status = row.get('status', '')
+                if status not in ('rejected', 'skipped', 'error_send_failed'):
+                    already_queued = True
+                    print(f"  {slug}: retainer pitch already queued (status={status}) — skipping")
+                    break
+        if already_queued:
+            continue
+    except Exception as e:
+        print(f"  {slug}: dedup check failed ({e}) — proceeding cautiously, skipping")
+        continue
+
+    # Build the loss-aversion email body
+    weeks = round(days / 7)
+    subject = f"Before {project_type.split('(')[0].strip()} wraps — what stays vs. what stops"
+
+    body = (
+        f"Hi — just a note worth reading before the project phase closes.\n\n"
+        f"{project_type} has been running for {weeks} weeks. "
+        f"Here is what is currently live for your team:\n\n"
+        f"- The core automations built during the project\n"
+        f"- Any integrations and data flows we set up\n"
+        f"- The logic that replaces manual steps in your workflow\n\n"
+        f"Here is what stops when the project engagement ends and there is no ongoing support:\n\n"
+        f"- The automations need maintenance — without it, edge cases accumulate and the system drifts\n"
+        f"- Integrations break when vendors update their APIs (this is not a matter of if, but when)\n"
+        f"- Any new requirements that come up have no one to implement them\n"
+        f"- The institutional knowledge built during the project walks out the door\n\n"
+        f"A monthly retainer means we stay in the system — monitoring, fixing, and handling the "
+        f"inevitable edge cases before they become your problem. The system keeps running the way "
+        f"it does now.\n\n"
+        f"Worth a 30-minute call to talk through what that would look like? "
+        f"Reply here and I will get something in the diary.\n\n"
+        f"Warm regards\nSophia\nAmalfi AI"
+    )
+
+    analysis_payload = {
+        'intent': 'retainer_pitch',
+        'client_slug': slug,
+        'sentiment': 'neutral',
+        'escalation_reason': '60-day project-to-retainer conversion check',
+        'days_since_start': days,
+        'project_type': project_type,
+        'auto_generated': True,
+        'draft_subject': subject,
+        'draft_body': body,
+    }
+
+    try:
+        supa_post('email_queue', {
+            'from_email': 'sophia@amalfiai.com',
+            'to_email': email,
+            'subject': subject,
+            'body': body,
+            'client': slug,
+            'status': 'awaiting_approval',
+            'requires_approval': True,
+            'priority': 7,
+            'analysis': analysis_payload,
+        })
+        print(f"  {slug}: retainer pitch queued for approval")
+
+        tg(
+            f"🔁 <b>Retainer pitch: {name}</b>\n"
+            f"Project has been running for {days} days with no retainer conversion.\n\n"
+            f"Loss-aversion draft queued in Mission Control → Approvals.\n"
+            f"Approve to send the pitch to <code>{email}</code>.\n\n"
+            f"<i>Framing: what breaks when the project ends — not upsell language.</i>"
+        )
+    except Exception as e:
+        print(f"  {slug}: failed to queue retainer pitch — {e}")
+
+print("Retainer conversion check complete.")
+RETAINER_PY

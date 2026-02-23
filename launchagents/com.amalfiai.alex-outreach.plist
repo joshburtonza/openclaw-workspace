@@ -11,14 +11,9 @@
       <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/cold-outreach/run-alex-outreach.sh</string>
     </array>
 
-    <!-- 9am Africa/Johannesburg = 7am UTC -->
-    <key>StartCalendarInterval</key>
-    <dict>
-      <key>Hour</key>
-      <integer>7</integer>
-      <key>Minute</key>
-      <integer>0</integer>
-    </dict>
+    <!-- Fire every 10 minutes. Script self-exits outside 6:30am-3pm SAST Mon-Fri. -->
+    <key>StartInterval</key>
+    <integer>600</integer>
 
     <key>StandardOutPath</key>
     <string>/Users/henryburton/.openclaw/workspace-anthropic/out/alex-outreach.log</string>
@@ -35,6 +30,8 @@
       <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
       <key>HOME</key>
       <string>/Users/henryburton</string>
+      <key>TZ</key>
+      <string>Africa/Johannesburg</string>
     </dict>
   </dict>
 </plist>

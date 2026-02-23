@@ -11,11 +11,11 @@
       <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/daily-repo-sync.sh</string>
     </array>
 
-    <!-- 09:00 SAST = 07:00 UTC -->
+    <!-- 09:00 SAST (launchd uses local time) -->
     <key>StartCalendarInterval</key>
     <dict>
       <key>Hour</key>
-      <integer>7</integer>
+      <integer>9</integer>
       <key>Minute</key>
       <integer>0</integer>
     </dict>

@@ -94,6 +94,7 @@ make_report_for_client() {
   local client_name="$2"
   local repo_dir="$3"
   local to_email="$4"
+  local relationship_type="${5:-retainer}"  # retainer | bd_partner | prospect
 
   local commits
   commits="$(summarize_repo "$repo_dir")"
@@ -103,9 +104,17 @@ make_report_for_client() {
 
   title="$client_name Weekly Progress Report"
   shipped="$commits"
-  next="- Continue feature delivery and bug fixes based on feedback\n- Confirm priorities for this week"
-  risks="- Waiting on any feedback or clarification needed from your team\n- If anything is unclear in the workflow, we want to simplify it"
-  decisions="- Confirm next priorities and any urgent items to address first"
+
+  if [[ "$relationship_type" == "bd_partner" ]]; then
+    # Collaborative/peer language for BD partners — we're building together, not vendor→client
+    next="- Continue building out our shared pipeline and address any blockers together\n- Align on priorities for the coming week"
+    risks="- Any dependencies or open items we need to resolve together\n- If anything in our shared workflow needs clarification, let us surface it now"
+    decisions="- Confirm our joint priorities and any urgent items to co-ordinate on first"
+  else
+    next="- Continue feature delivery and bug fixes based on feedback\n- Confirm priorities for this week"
+    risks="- Waiting on any feedback or clarification needed from your team\n- If anything is unclear in the workflow, we want to simplify it"
+    decisions="- Confirm next priorities and any urgent items to address first"
+  fi
 
   md_file="$OUT_DIR/${client_key}.md"
   pdf_file="$OUT_DIR/${client_key}.pdf"
@@ -123,10 +132,14 @@ make_report_for_client() {
 
   local subject body analysis
   subject="$client_name weekly progress report (week ending $WEEK_ENDING)"
-  body="Hi. Please see the attached weekly progress report PDF for $client_name (week ending $WEEK_ENDING).\n\nRegards\nSophia"
+  if [[ "$relationship_type" == "bd_partner" ]]; then
+    body="Hi — here is our joint progress update for the week ending $WEEK_ENDING. The attached report covers what we shipped together and what we are co-ordinating on next.\n\nLet us know if anything needs to move up in our shared pipeline.\n\nRegards\nSophia"
+  else
+    body="Hi. Please see the attached weekly progress report PDF for $client_name (week ending $WEEK_ENDING).\n\nRegards\nSophia"
+  fi
 
   # Store PDF path + Gamma URLs in analysis until attachments column exists
-  analysis="{\"type\":\"weekly_report\",\"week_ending\":\"$WEEK_ENDING\",\"pdf_path\":\"$pdf_file\",\"gamma_url\":\"$gamma_url\",\"export_url\":\"$export_url\",\"generation_id\":\"$generation_id\"}"
+  analysis="{\"type\":\"weekly_report\",\"week_ending\":\"$WEEK_ENDING\",\"pdf_path\":\"$pdf_file\",\"gamma_url\":\"$gamma_url\",\"export_url\":\"$export_url\",\"generation_id\":\"$generation_id\",\"relationship_type\":\"$relationship_type\"}"
 
   echo "Creating email_queue draft for $client_key..." >&2
   insert_draft "$client_key" "$to_email" "$subject" "$body" "$analysis" >/dev/null
@@ -134,8 +147,9 @@ make_report_for_client() {
 }
 
 # One PDF per client, no bleed
-make_report_for_client "ascend_lc" "Ascend LC (QMS Guard)" "$ROOT/qms-guard" "riaan@ascendlc.co.za"
-make_report_for_client "race_technik" "Race Technik" "$ROOT/chrome-auto-care" "racetechnik010@gmail.com"
-make_report_for_client "favorite_logistics" "Favorite Logistics (FLAIR)" "$ROOT/favorite-flow-9637aff2" "rapizo92@gmail.com"
+# relationship_type: retainer | bd_partner | prospect (matches data/client-projects.json)
+make_report_for_client "ascend_lc"          "Ascend LC (QMS Guard)"        "$ROOT/qms-guard"              "riaan@ascendlc.co.za"        "bd_partner"
+make_report_for_client "race_technik"       "Race Technik"                  "$ROOT/chrome-auto-care"       "racetechnik010@gmail.com"    "retainer"
+make_report_for_client "favorite_logistics" "Favorite Logistics (FLAIR)"   "$ROOT/favorite-flow-9637aff2" "rapizo92@gmail.com"          "retainer"
 
 echo "All weekly reports generated in: $OUT_DIR" >&2

@@ -13,13 +13,13 @@
       <string>weekly-memory</string>
     </array>
 
-    <!-- Sunday 6pm Africa/Johannesburg = Sunday 4pm UTC -->
+    <!-- Sunday 18:00 SAST (launchd uses local time) -->
     <key>StartCalendarInterval</key>
     <dict>
       <key>Weekday</key>
       <integer>0</integer>
       <key>Hour</key>
-      <integer>16</integer>
+      <integer>18</integer>
       <key>Minute</key>
       <integer>0</integer>
     </dict>

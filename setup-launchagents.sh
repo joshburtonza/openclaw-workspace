@@ -27,6 +27,7 @@ AGENTS=(
   com.amalfiai.nightly-flush
   com.amalfiai.weekly-memory
   com.amalfiai.sophia-followup
+  com.amalfiai.read-ai-sync
 )
 
 for AGENT in "${AGENTS[@]}"; do

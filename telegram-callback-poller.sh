@@ -14,6 +14,19 @@ set -uo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
+# ── Pidfile guard: only one instance at a time ────────────────────────────────
+PIDFILE="/Users/henryburton/.openclaw/workspace-anthropic/tmp/telegram-poller.pid"
+mkdir -p "$(dirname "$PIDFILE")"
+if [[ -f "$PIDFILE" ]]; then
+  OLD_PID=$(cat "$PIDFILE" 2>/dev/null || true)
+  if [[ -n "$OLD_PID" ]] && kill -0 "$OLD_PID" 2>/dev/null; then
+    echo "Poller already running (pid $OLD_PID), exiting." >&2
+    exit 0
+  fi
+fi
+echo $$ > "$PIDFILE"
+trap 'rm -f "$PIDFILE"; exit 0' EXIT INT TERM
+
 # Load secrets from env file
 ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
@@ -27,6 +40,7 @@ OFFSET_FILE="/Users/henryburton/.openclaw/workspace-anthropic/tmp/telegram_updat
 mkdir -p "$(dirname "$OFFSET_FILE")"
 
 JOSH_BOT_USERNAME="${JOSH_BOT_USERNAME:-JoshAmalfiBot}"
+DEEPGRAM_API_KEY="${DEEPGRAM_API_KEY:-}"
 TG_API="https://api.telegram.org/bot${BOT_TOKEN}"
 
 # ── Continuous long-polling loop ──────────────────────────────────────────────
@@ -52,7 +66,13 @@ while true; do
     continue
   fi
 
-  export RESP OFFSET_FILE BOT_TOKEN SUPABASE_URL ANON_KEY SERVICE_KEY JOSH_BOT_USERNAME
+  # Skip malformed JSON (e.g. from SIGTERM mid-curl)
+  if ! echo "$RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+    sleep 2
+    continue
+  fi
+
+  export RESP OFFSET_FILE BOT_TOKEN SUPABASE_URL ANON_KEY SERVICE_KEY JOSH_BOT_USERNAME DEEPGRAM_API_KEY
 
   python3 - <<'PY' || true
 import json, os, subprocess, sys, re
@@ -60,7 +80,9 @@ import requests
 
 resp=json.loads(os.environ.get('RESP','{}'))
 if not resp.get('ok'):
-    print('Telegram getUpdates not ok', file=sys.stderr)
+    err_code = resp.get('error_code', 0)
+    if err_code != 409:  # 409 = conflict from prior instance, not worth logging
+        print(f"Telegram getUpdates not ok: {resp.get('description','unknown')}", file=sys.stderr)
     sys.exit(0)
 
 updates=resp.get('result', [])
@@ -316,6 +338,63 @@ def handle_remind(chat_id, text):
     except Exception as e:
         tg_send(chat_id, f'❌ Error saving reminder: {e}')
 
+# ── Handle research: command ──────────────────────────────────────────────────
+def handle_research(chat_id, text):
+    """
+    Saves research transcripts/URLs to research/inbox/ for the digest agent.
+
+    Formats accepted:
+      research: My Source Title\nFull transcript or content here...
+      research: https://www.youtube.com/watch?v=...
+      research: (shows usage)
+    """
+    import datetime as _dt, os as _os
+
+    raw = re.sub(r'^research:\s*', '', text, flags=re.IGNORECASE).strip()
+    if not raw:
+        tg_send(chat_id,
+            "📚 <b>Drop research to process:</b>\n\n"
+            "<code>research: Source Title\nPaste transcript here...</code>\n\n"
+            "Or for a URL:\n"
+            "<code>research: Source Title\nhttps://youtube.com/watch?v=...</code>\n\n"
+            "Processed within 30 min. Results in <i>Mission Control → Research</i>."
+        )
+        return
+
+    lines = raw.split('\n', 1)
+    title   = lines[0].strip()
+    content = lines[1].strip() if len(lines) > 1 else ''
+
+    # Single-line URL or bare content — use generic title
+    if not content:
+        content = title
+        title   = f"Telegram drop {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+
+    if len(content) < 20 and not content.startswith('http'):
+        tg_send(chat_id,
+            "⚠️ Content too short — paste the full transcript after the title line.\n\n"
+            "<code>research: Title\nFull content here...</code>"
+        )
+        return
+
+    slug     = re.sub(r'[^a-z0-9]+', '-', title.lower())[:60].strip('-')
+    ts       = _dt.datetime.now().strftime('%Y%m%d-%H%M%S')
+    filename = f"{ts}-{slug}.txt"
+    inbox    = f"{WS}/research/inbox"
+    filepath = f"{inbox}/{filename}"
+
+    try:
+        _os.makedirs(inbox, exist_ok=True)
+        with open(filepath, 'w') as f:
+            f.write(content)
+        tg_send(chat_id,
+            f"📚 <b>Research queued:</b> {title}\n"
+            f"Saved to inbox — processed within 30 min.\n"
+            f"Check <i>Mission Control → Research</i> for insights."
+        )
+    except Exception as e:
+        tg_send(chat_id, f"❌ Failed to save research: {e}")
+
 # ── Handle /help command ──────────────────────────────────────────────────────
 def handle_help(chat_id):
     tg_send(chat_id,
@@ -332,7 +411,8 @@ def handle_help(chat_id):
         "/remind tomorrow 9am Description\n"
         "/newlead [Name] email@co.com [Company]\n"
         "/ooo [reason] — Sophia holds all drafts\n"
-        "/available — Resume normal ops\n\n"
+        "/available — Resume normal ops\n"
+        "research: Title\\nContent — queue research for digest\n\n"
         "✅ <b>Email approvals</b> — tap the buttons on cards"
     )
 
@@ -430,16 +510,23 @@ for u in updates:
 
         continue  # done with this update
 
-    # ── Text message (commands) ───────────────────────────────────────────────
+    # ── Any message type ──────────────────────────────────────────────────────
     msg = u.get('message') or u.get('edited_message')
     if not msg:
         continue
 
-    text    = (msg.get('text') or '').strip()
-    chat_id = ((msg.get('chat') or {}).get('id'))
-    chat_type = (msg.get('chat') or {}).get('type', 'private')  # private/group/supergroup
+    text       = (msg.get('text') or '').strip()
+    caption    = (msg.get('caption') or '').strip()
+    chat_id    = ((msg.get('chat') or {}).get('id'))
+    chat_type  = (msg.get('chat') or {}).get('type', 'private')
+    photo      = msg.get('photo')
+    voice      = msg.get('voice')
+    video      = msg.get('video')
+    video_note = msg.get('video_note')
+    document   = msg.get('document')
 
-    if not text or not chat_id:
+    has_content = text or photo or voice or video or video_note or document
+    if not has_content or not chat_id:
         continue
 
     is_group = chat_type in ('group', 'supergroup')
@@ -462,6 +549,7 @@ for u in updates:
         is_bot_msg  = sender.get('is_bot', False)
 
         group_history_file = f"{WS}/tmp/group-{chat_id}.jsonl"
+        log_text = text or caption or '[media]'
         try:
             with open(group_history_file, 'a') as gf:
                 import json as _json
@@ -469,9 +557,8 @@ for u in updates:
                     'ts': _dt.datetime.utcnow().strftime('%H:%M'),
                     'role': sender_name,
                     'is_bot': is_bot_msg,
-                    'message': text,
+                    'message': log_text,
                 }) + '\n')
-            # Keep last 100 lines
             with open(group_history_file) as gf:
                 lines = gf.readlines()
             if len(lines) > 100:
@@ -480,7 +567,6 @@ for u in updates:
         except Exception:
             pass
 
-        # Also write to Supabase so RaceTechnikAiBot (and any other bot) can read it
         try:
             import requests as _req
             _req.post(
@@ -495,19 +581,144 @@ for u in updates:
                     'chat_id': str(chat_id),
                     'sender': sender_name,
                     'is_bot': is_bot_msg,
-                    'message': text,
+                    'message': log_text,
                 },
                 timeout=5
             )
         except Exception:
             pass
 
-        # Only respond if @mentioned — skip commands that aren't for us
         mention = f'@{JOSH_BOT_USERNAME}'
-        if mention.lower() not in text.lower():
+        if mention.lower() not in (text or caption or '').lower():
             continue  # log only, don't respond
 
-    # ── Commands (work in both private and group chats) ───────────────────────
+    # ── Media helpers ─────────────────────────────────────────────────────────
+    def tg_download(file_id):
+        r = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}",
+            timeout=10
+        )
+        file_path = r.json()['result']['file_path']
+        data = requests.get(
+            f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}",
+            timeout=60
+        ).content
+        return data
+
+    group_history_file = f"{WS}/tmp/group-{chat_id}.jsonl" if is_group else ''
+
+    # ── Photo ─────────────────────────────────────────────────────────────────
+    if photo:
+        try:
+            largest = max(photo, key=lambda p: p.get('file_size', 0))
+            img_data = tg_download(largest['file_id'])
+            img_path = f"{WS}/tmp/tg-photo-{uid}.jpg"
+            with open(img_path, 'wb') as f:
+                f.write(img_data)
+            user_text = f"[Photo from Josh]\nCaption: {caption}\nImage file: {img_path}" if caption else f"[Photo from Josh]\nImage file: {img_path}"
+            subprocess.Popen([
+                'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
+                str(chat_id), user_text, group_history_file,
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            tg_send(chat_id, f'❌ Failed to process photo: {e}')
+        continue
+
+    # ── Voice message ─────────────────────────────────────────────────────────
+    if voice:
+        try:
+            audio_data = tg_download(voice['file_id'])
+            tg_send(chat_id, '🎙 Transcribing...')
+
+            deepgram_key = os.environ.get('DEEPGRAM_API_KEY', '')
+            if not deepgram_key or deepgram_key == 'REPLACE_WITH_DEEPGRAM_API_KEY':
+                user_text = '[Voice message received but Deepgram API key is not set]'
+            else:
+                import urllib.request
+                req = urllib.request.Request(
+                    'https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&detect_language=true',
+                    data=audio_data,
+                    headers={
+                        'Authorization': f'Token {deepgram_key}',
+                        'Content-Type': 'audio/ogg',
+                    },
+                    method='POST',
+                )
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    dg = json.loads(resp.read())
+                transcript = (
+                    dg.get('results', {})
+                      .get('channels', [{}])[0]
+                      .get('alternatives', [{}])[0]
+                      .get('transcript', '')
+                      .strip()
+                )
+                detected_lang = (
+                    dg.get('results', {})
+                      .get('channels', [{}])[0]
+                      .get('detected_language', '')
+                )
+                lang_note = f' [{detected_lang}]' if detected_lang and detected_lang != 'en' else ''
+                user_text = (
+                    f'[Voice message{lang_note} — transcribed]: {transcript}'
+                    if transcript
+                    else '[Voice message received but transcription returned empty]'
+                )
+
+            subprocess.Popen([
+                'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
+                str(chat_id), user_text, group_history_file,
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            tg_send(chat_id, f'❌ Failed to process voice: {e}')
+        continue
+
+    # ── Video / video note ────────────────────────────────────────────────────
+    if video or video_note:
+        try:
+            media = video or video_note
+            thumb = media.get('thumbnail') or media.get('thumb')
+            if thumb:
+                thumb_data = tg_download(thumb['file_id'])
+                thumb_path = f"{WS}/tmp/tg-video-thumb-{uid}.jpg"
+                with open(thumb_path, 'wb') as f:
+                    f.write(thumb_data)
+                label = 'Round video' if video_note else 'Video'
+                user_text = f"[{label} from Josh — showing thumbnail]\nCaption: {caption}\nThumbnail file: {thumb_path}" if caption else f"[{label} from Josh — showing thumbnail]\nThumbnail file: {thumb_path}"
+            else:
+                label = 'Round video' if video_note else 'Video'
+                user_text = f"[{label} from Josh — no thumbnail available]\n{caption}" if caption else f"[{label} from Josh received]"
+            subprocess.Popen([
+                'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
+                str(chat_id), user_text, group_history_file,
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            tg_send(chat_id, f'❌ Failed to process video: {e}')
+        continue
+
+    # ── Document (file) ───────────────────────────────────────────────────────
+    if document:
+        try:
+            mime = document.get('mime_type', '')
+            fname = document.get('file_name', 'file')
+            # Only download if it's an image or small doc
+            if mime.startswith('image/'):
+                doc_data = tg_download(document['file_id'])
+                doc_path = f"{WS}/tmp/tg-doc-{uid}-{fname}"
+                with open(doc_path, 'wb') as f:
+                    f.write(doc_data)
+                user_text = f"[Document/image from Josh: {fname}]\nCaption: {caption}\nFile: {doc_path}" if caption else f"[Document/image from Josh: {fname}]\nFile: {doc_path}"
+            else:
+                user_text = f"[Document from Josh: {fname} ({mime})]\n{caption}" if caption else f"[Document from Josh: {fname} ({mime})]"
+            subprocess.Popen([
+                'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
+                str(chat_id), user_text, group_history_file,
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            tg_send(chat_id, f'❌ Failed to process document: {e}')
+        continue
+
+    # ── Text: commands + free-text → Claude ───────────────────────────────────
     text_lower = text.lower()
 
     if text_lower.startswith('/remind'):
@@ -525,30 +736,44 @@ for u in updates:
     elif text_lower.startswith('/help') or text_lower == '/start':
         handle_help(chat_id)
 
-    # Free-text → Claude gateway
+    elif text_lower.startswith('research:'):
+        handle_research(chat_id, text)
+
     else:
-        group_history_file = f"{WS}/tmp/group-{chat_id}.jsonl" if is_group else ''
+        import time as _time
+
         pending_file = f"{WS}/tmp/telegram_pending_adjust_{chat_id}"
         if os.path.exists(pending_file):
+            # Adjust requests go immediately — no batching needed
             try:
                 with open(pending_file) as f:
                     email_id = f.read().strip()
                 os.remove(pending_file)
+                msg_text = f'Adjust the email draft for email_id={email_id}. The requested change: {text}'
                 subprocess.Popen([
-                    'bash',
-                    f'{WS}/scripts/telegram-claude-gateway.sh',
-                    str(chat_id),
-                    f'Adjust the email draft for email_id={email_id}. The requested change: {text}',
-                    group_history_file,
+                    'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
+                    str(chat_id), msg_text, group_history_file,
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
         else:
+            # Batch: buffer the message, spawn dispatcher that waits 3s for more messages
+            batch_file = f"{WS}/tmp/tg-batch-{chat_id}.txt"
+            last_file  = f"{WS}/tmp/tg-batch-{chat_id}.last"
+
+            # Append this message to the buffer (double newline as separator)
+            with open(batch_file, 'a') as _bf:
+                _bf.write(text + '\n\n')
+
+            # Record when the last message arrived
+            with open(last_file, 'w') as _lf:
+                _lf.write(str(_time.time()))
+
+            # Spawn a dispatcher — it sleeps 3s then fires gateway if no newer messages
             subprocess.Popen([
-                'bash',
-                f'{WS}/scripts/telegram-claude-gateway.sh',
+                'python3',
+                f'{WS}/scripts/telegram-batch-dispatcher.py',
                 str(chat_id),
-                text,
                 group_history_file,
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

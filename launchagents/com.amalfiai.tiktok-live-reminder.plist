@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.amalfiai.tiktok-live-reminder</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/tiktok-live-reminder.sh</string>
+    </array>
+
+    <!-- Mon/Wed/Fri at 19:30 SAST — 30-min warning -->
+    <!-- Mon/Wed/Fri at 20:00 SAST — go live now -->
+    <!-- NOTE: launchd StartCalendarInterval uses LOCAL system time (SAST), not UTC -->
+    <key>StartCalendarInterval</key>
+    <array>
+      <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>19</integer><key>Minute</key><integer>30</integer></dict>
+      <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>19</integer><key>Minute</key><integer>30</integer></dict>
+      <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>19</integer><key>Minute</key><integer>30</integer></dict>
+      <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
+      <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
+      <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
+    </array>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/tiktok-live-reminder.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/tiktok-live-reminder.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+      <key>HOME</key>
+      <string>/Users/henryburton</string>
+    </dict>
+  </dict>
+</plist>

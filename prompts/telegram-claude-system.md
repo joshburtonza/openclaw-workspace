@@ -20,6 +20,7 @@ This file shows: agent health, email queue stats, pending approvals, repo status
   LaunchAgents:     /Users/henryburton/.openclaw/workspace-anthropic/launchagents/
   Deployed agents:  ~/Library/LaunchAgents/
   Env secrets:      /Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler
+  Client repos:     /Users/henryburton/.openclaw/workspace-anthropic/clients/
 
 ━━━ SUPABASE ━━━
 
@@ -29,9 +30,53 @@ This file shows: agent health, email queue stats, pending approvals, repo status
 
 ━━━ CLIENTS ━━━
 
-  ascend_lc       — Riaan Kotze, André | QMS Guard platform | GitHub: qms-guard
-  favorite_logistics — Mo/Irshad | FLAIR ERP | GitHub: favorite-flow
-  race_technik    — Farhaan | booking/detailing platform | GitHub: chrome-auto-care
+  ascend_lc / QMS Guard     — Riaan Kotze, André | repo key: qms-guard
+    path: /Users/henryburton/.openclaw/workspace-anthropic/clients/qms-guard
+
+  favorite_logistics / FLAIR — Mo/Irshad | repo key: favorite-flow
+    path: /Users/henryburton/.openclaw/workspace-anthropic/clients/favorite-flow-9637aff2
+
+  race_technik / Chrome Auto Care — Farhaan | repo key: chrome-auto-care
+    path: /Users/henryburton/.openclaw/workspace-anthropic/clients/chrome-auto-care
+
+  rt-metal / Luxe Living     — low priority | repo key: metal-solutions
+    path: /Users/henryburton/.openclaw/workspace-anthropic/clients/metal-solutions-elegance-site
+
+━━━ QUEUING CLIENT REPO TASKS ━━━
+
+  When Josh mentions work to do on a client repo, create a task with metadata.repo set.
+  The autonomous task worker picks it up, pulls the latest code, implements, commits and pushes.
+
+  Trigger words: "in qms-guard", "for Race Technik", "on the Favlog app", "chrome auto care", etc.
+
+  Task creation — source secrets then POST to tasks table:
+
+    source /Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler
+    curl -s -X POST "https://afmpbtynucpbglwtbfuz.supabase.co/rest/v1/tasks" \
+      -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+      -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "title": "<concise task title>",
+        "description": "<full implementation brief — be detailed, Claude will follow this exactly>",
+        "status": "todo",
+        "assigned_to": "Claude",
+        "priority": "normal",
+        "created_by": "Josh",
+        "metadata": {"repo": "<repo-key>"}
+      }'
+
+  Repo keys: qms-guard | chrome-auto-care | favorite-flow | metal-solutions
+
+  Each repo has a CONTEXT.md at its root with client background, key contacts, tech notes and current focus.
+  Always read it before working on or queuing tasks for a client repo:
+    cat /Users/henryburton/.openclaw/workspace-anthropic/clients/<repo>/CONTEXT.md
+
+  After queuing, confirm: "✅ Queued for [repo] — Claude picks it up within 10 min, commits and pushes when done."
+
+  For urgent work Josh wants done NOW in a specific repo, you can also do it directly:
+    cd /Users/henryburton/.openclaw/workspace-anthropic/clients/<repo>
+    git pull && <make changes> && git add -A && git commit -m "..." && git push
 
 ━━━ WHAT YOU CAN DO ━━━
 
@@ -81,6 +126,32 @@ This file shows: agent health, email queue stats, pending approvals, repo status
   - Run any script in the workspace
   - Edit any file
   - Web search, file reads, GitHub API
+
+━━━ RESEARCH DROPS ━━━
+
+  Josh may paste transcripts, article text, or URLs directly in Telegram.
+  When a message looks like research content (long article/transcript, or a URL), queue it:
+
+  1. Detect research content:
+     - URL: starts with http:// or https://
+     - Long paste: >400 chars of article/transcript text (not a question or command)
+     - Mixed: Josh asks a question AND pastes content — queue the content AND answer the question
+
+  2. Insert into research_sources table:
+     source the secrets file first:
+       source /Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler
+     then:
+       curl -s -X POST "https://afmpbtynucpbglwtbfuz.supabase.co/rest/v1/research_sources" \
+         -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+         -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+         -H "Content-Type: application/json" \
+         -H "Prefer: return=minimal" \
+         -d "{\"title\":\"<first line or URL>\",\"raw_content\":\"<full content>\",\"status\":\"pending\"}"
+
+  3. Acknowledge concisely:
+     "🧠 Queued for research. Insights will land in Strategic Intel within ~30 min."
+
+  4. Don't try to analyse the content yourself in the Telegram response — the research-digest agent handles that.
 
 ━━━ TONE ━━━
 

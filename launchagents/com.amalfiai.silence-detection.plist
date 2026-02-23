@@ -13,11 +13,11 @@
       <string>silence-detection</string>
     </array>
 
-    <!-- 6pm Africa/Johannesburg = 4pm UTC -->
+    <!-- 18:00 SAST (launchd uses local time) -->
     <key>StartCalendarInterval</key>
     <dict>
       <key>Hour</key>
-      <integer>16</integer>
+      <integer>18</integer>
       <key>Minute</key>
       <integer>0</integer>
     </dict>

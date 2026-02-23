@@ -11,11 +11,11 @@
       <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/nightly-github-sync.sh</string>
     </array>
 
-    <!-- 23:00 SAST = 21:00 UTC -->
+    <!-- 23:00 SAST (launchd uses local time) -->
     <key>StartCalendarInterval</key>
     <dict>
       <key>Hour</key>
-      <integer>21</integer>
+      <integer>23</integer>
       <key>Minute</key>
       <integer>0</integer>
     </dict>
