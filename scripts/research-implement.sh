@@ -48,7 +48,8 @@ req = urllib.request.Request(
 )
 try:
     with urllib.request.urlopen(req, timeout=15) as r:
-        stuck = json.loads(r.read())
+        raw = r.read()
+        stuck = json.loads(raw) if raw and raw.strip() else []
 except Exception:
     stuck = []
 
@@ -106,7 +107,8 @@ req = urllib.request.Request(
 )
 try:
     with urllib.request.urlopen(req, timeout=15) as r:
-        rows = json.loads(r.read())
+        raw = r.read()
+        rows = json.loads(raw) if raw and raw.strip() else []
         print(json.dumps(rows[0]) if rows else "")
 except Exception as e:
     import sys; print("", file=sys.stderr)

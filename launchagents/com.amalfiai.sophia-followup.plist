@@ -8,7 +8,7 @@
     <key>ProgramArguments</key>
     <array>
       <string>/bin/bash</string>
-      <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/run-claude-job.sh</string>
+      <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/run-sophia-job.sh</string>
       <string>/Users/henryburton/.openclaw/workspace-anthropic/prompts/sophia-followup.md</string>
       <string>sophia-followup</string>
     </array>

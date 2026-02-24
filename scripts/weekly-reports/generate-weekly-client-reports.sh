@@ -36,12 +36,60 @@ summarize_repo() {
   (cd "$repo_dir" && git log --since="$since" --pretty=format:'- %ad %s' --date=short --no-merges | head -n 40)
 }
 
+# Returns a markdown Automation Pipeline Status section for Race Technik.
+# Derives each stage status from git log: in-progress (last 7 days), live (all history), pending (not found).
+get_automation_pipeline_status() {
+  local repo_dir="$1"
+
+  local log_all log_recent
+  # NOTE: intentionally includes merge commits — meaningful subject lines live on merge commits in this repo's workflow
+  log_all="$(cd "$repo_dir" && git log --pretty=format:'%s' 2>/dev/null | head -300)"
+  log_recent="$(cd "$repo_dir" && git log --since='7 days ago' --pretty=format:'%s' 2>/dev/null)"
+
+  stage_status() {
+    local keywords="$1"
+    if echo "$log_recent" | grep -qiE "$keywords"; then
+      echo "🔄 in-progress"
+    elif echo "$log_all" | grep -qiE "$keywords"; then
+      echo "✅ live"
+    else
+      echo "⏳ pending"
+    fi
+  }
+
+  local s1 s2 s3 s4 s5 s6
+  s1="$(stage_status "booking|walk-in|walkin|intake")"
+  s2="$(stage_status "job.?card|job.?track|stage.typ|job card")"
+  s3="$(stage_status "technician|brief|staff.dashboard")"
+  s4="$(stage_status "status.updat|notification|push.notif|webhook")"
+  s5="$(stage_status "invoice|payment|yoco")"
+  s6="$(stage_status "review|follow.?up")"
+
+  cat <<PIPELINE
+
+## Automation Pipeline Status
+
+| # | Stage | Status |
+|---|-------|--------|
+| 1 | Booking Intake | $s1 |
+| 2 | Job Card Creation | $s2 |
+| 3 | Technician Briefing | $s3 |
+| 4 | Status Updates | $s4 |
+| 5 | Invoice | $s5 |
+| 6 | Follow-Up Review Request | $s6 |
+
+*Status key: ✅ live  🔄 in-progress  ⏳ pending — derived from recent repo activity.*
+PIPELINE
+}
+
 make_md() {
   local title="$1"
   local shipped="$2"
   local next="$3"
   local risks="$4"
   local decisions="$5"
+  local scope_deferred="$6"
+  local pipeline_section="${7:-}"
 
   cat <<EOF
 # $title
@@ -49,6 +97,16 @@ make_md() {
 ## What we shipped last week
 $shipped
 
+## Scope & Expectations
+
+**Delivered this week:**
+$shipped
+
+**Out of scope / deferred:**
+$scope_deferred
+
+Agent automations are performing as scoped — edge cases outside the defined scope may require manual review.
+$pipeline_section
 ## What we are doing next week
 $next
 
@@ -100,7 +158,7 @@ make_report_for_client() {
   commits="$(summarize_repo "$repo_dir")"
   [[ -z "$commits" ]] && commits="- No code changes committed this week"
 
-  local shipped next risks decisions title md_file pdf_file
+  local shipped next risks decisions scope_deferred title md_file pdf_file
 
   title="$client_name Weekly Progress Report"
   shipped="$commits"
@@ -110,16 +168,24 @@ make_report_for_client() {
     next="- Continue building out our shared pipeline and address any blockers together\n- Align on priorities for the coming week"
     risks="- Any dependencies or open items we need to resolve together\n- If anything in our shared workflow needs clarification, let us surface it now"
     decisions="- Confirm our joint priorities and any urgent items to co-ordinate on first"
+    scope_deferred="- Items outside our agreed joint pipeline scope are not included in this report\n- Any deferred items have been flagged for our next co-ordination session"
   else
     next="- Continue feature delivery and bug fixes based on feedback\n- Confirm priorities for this week"
     risks="- Waiting on any feedback or clarification needed from your team\n- If anything is unclear in the workflow, we want to simplify it"
     decisions="- Confirm next priorities and any urgent items to address first"
+    scope_deferred="- Custom integrations, third-party data migrations, and manual data entry tasks are outside the current sprint scope\n- Any items not completed this week have been carried to the next sprint backlog"
   fi
 
   md_file="$OUT_DIR/${client_key}.md"
   pdf_file="$OUT_DIR/${client_key}.pdf"
 
-  make_md "$title" "$shipped" "$next" "$risks" "$decisions" > "$md_file"
+  # Race Technik gets a 6-stage Automation Pipeline Status section pulled from repo activity
+  local pipeline_section=""
+  if [[ "$client_key" == "race_technik" ]]; then
+    pipeline_section="$(get_automation_pipeline_status "$repo_dir")"
+  fi
+
+  make_md "$title" "$shipped" "$next" "$risks" "$decisions" "$scope_deferred" "$pipeline_section" > "$md_file"
 
   echo "Generating Gamma PDF for $client_key..." >&2
   local result_json

@@ -144,6 +144,13 @@ STRUCTURE — FOLLOW THIS EXACTLY:
    Keep this section tight — 3-4 bullet points max, each one a specific, tangible loss.
    Do NOT use generic language like "you lose access to our platform."
 
+   REBUILD COST ANCHOR (include after the loss bullets — one sentence only):
+   After listing what stops, add one sentence anchoring the rebuild cost:
+   "As a practical reference point — rebuilding this pipeline with an external developer or freelancer
+   would cost R40–60k and 8–12 weeks, across the [N] automations and integrations currently live."
+   Pull [N] from STEP R1 D) (typically 6 for Phase 1 scope). Frame as context, not a threat.
+   Only include if no prior sent email already references rebuild cost.
+
 3. CLOSE WITH A SINGLE ROI NUMBER:
    Industry benchmark (AIOS methodology, confirmed internally): ISO 9001 compliance workflows
    typically run 60-70% automated with QMS Guard vs. a manual QMS process.
@@ -203,6 +210,13 @@ TEMPLATE STRUCTURE — FOLLOW THIS FOR MONTH 3+ AT-RISK EMAILS:
 
    X = count of live automations from STEP R1 D) (typically 6 for Phase 1 scope).
    ACTIVITY_COUNT and MONTHLY_COST_AVOIDED pulled from STEP R1 B) and C).
+
+   REBUILD COST ANCHOR (include after the scorecard — one sentence only):
+   After presenting the outcomes data, add one sentence anchoring the rebuild cost:
+   "Worth noting as context: rebuilding what is live across these [N] automations and integrations
+   with an external developer or agency would cost R40–60k and 8–12 weeks."
+   Pull [N] from STEP R1 D) (typically 6 for Phase 1 scope). Frame as factual context, not a threat.
+   Only include if no prior sent email already references rebuild cost.
 
 2. CONNECT TO FORWARD VALUE:
    Do NOT use "here is what stops the moment you cancel" in the month 3+ variant.

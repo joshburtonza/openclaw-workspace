@@ -1,10 +1,12 @@
-# CURRENT STATE — 2026-02-22 23:00 UTC
+# CURRENT STATE — 2026-02-24 01:00 UTC
 > Auto-generated every night. Read this file for live operational context.
 
 ## Agent Health
   ✅ daily-repo-sync (exit 0)
+  ✅ read-ai-sync (exit 0)
   ✅ calendar-sync (exit 0)
   ✅ tiktok-live-reminder (exit 0)
+  ✅ research-implement (exit 0)
   ✅ alex-outreach (exit 0)
   ✅ nightly-flush (exit 0)
   ✅ sophia-cron (exit 0)
@@ -12,26 +14,34 @@
   ✅ heartbeat (exit 0)
   ✅ morning-brief (exit 0)
   ✅ error-monitor (exit 0)
+  ✅ meeting-digest (exit 0)
   ✅ alex-reply-detection (exit 0)
+  ✅ agent-status-updater (exit 0)
   ✅ morning-video-scripts (exit 0)
+  ✅ whatsapp-capture (exit 0)
   ✅ nightly-state (exit 0)
   ✅ weekly-memory (exit 0)
-  ✅ claude-task-worker (exit 0)
+  ✅ research-digest (exit 0)
   ✅ silence-detection (exit 0)
+  ✅ claude-task-worker (exit 0)
   ✅ reminder-poller (exit 0)
   ✅ activity-tracker (exit 0)
   ✅ nightly-github-sync (exit 0)
   ✅ sophia-followup (exit 0)
+  ✅ meet-notes-poller (exit 0)
+  ✅ data-os-sync (exit 0)
   ✅ email-response-scheduler (exit 0)
-  ✅ telegram-poller (exit 0)
+  ✅ sophia-outbound (exit 0)
+  ✅ claude-startup (exit 0)
   ✅ discord-morning-nudge (exit 0)
   ✅ retainer-tracker (exit 0)
 
 ## Email Queue
-  awaiting_approval: 9 (6 today)
-  rejected: 9
-  sent: 14 (3 today)
-  skipped: 9 (8 today)
+  auto_pending: 1
+  awaiting_approval: 6
+  rejected: 12
+  sent: 15
+  skipped: 9
 
 ## Pending Approvals / Auto-Sends
   ⏳ [ascend_lc] Ascend LC (QMS Guard) weekly progress report (week ending 20 (awaiting_approval)
@@ -40,9 +50,7 @@
   ⏳ [ascend_lc] Quick note re: 2026-02 invoice (awaiting_approval)
   ⏳ [favorite_logistics] Quick note re: 2026-02 invoice (awaiting_approval)
   ⏳ [race_technik] Quick note re: 2026-02 invoice (awaiting_approval)
-  ⏳ [ascend_lc] Thinking about canceling (awaiting_approval)
-  ⏳ [ascend_lc] Budget review needed (awaiting_approval)
-  ⏳ [ascend_lc] Interested in your services (awaiting_approval)
+  ⚡ [ascend_lc] QMS Guard Update: Platform Refresh and Weekly Progress (auto_pending)
 
 ## OOO Status
   Josh available
@@ -51,57 +59,21 @@
   (none)
 
 ## Repo Status
-  workspace: 5 dirty
-  mission-control-hub: 2 dirty
-  qms-guard: 38 behind
+  workspace: 18 dirty, 1 ahead
+  mission-control-hub: clean
+  qms-guard: 4 behind
   chrome-auto-care: clean
   favorite-flow: clean
 
 ## Recent Activity
-  2026-02-22 22:34 — dirty: workspace, mission-control-hub | behind: qms-guard
-  2026-02-22 22:40 — dirty: workspace, mission-control-hub | behind: qms-guard
-  2026-02-22 22:45 — dirty: workspace, mission-control-hub | behind: qms-guard
-  2026-02-22 22:50 — dirty: workspace, mission-control-hub | behind: qms-guard
-  2026-02-22 22:55 — dirty: workspace, mission-control-hub | behind: qms-guard
+  2026-02-24 00:47 — dirty: workspace | behind: qms-guard
+  2026-02-24 00:50 — dirty: workspace | behind: qms-guard
+  2026-02-24 00:52 — dirty: workspace | behind: qms-guard
+  2026-02-24 00:55 — dirty: workspace | behind: qms-guard
+  2026-02-24 00:57 — dirty: workspace | behind: qms-guard
+
+## Scope Creep Alerts
+  (none)
 
 ## Today's Log
-# Daily Log — Sunday, February 22, 2026
-
-## Email Activity
-3 awaiting_approval, 1 skipped
-
-## Agent Health
-- ✅ activity-tracker
-- ✅ alex-outreach
-- ✅ alex-reply-detection
-- ✅ calendar-sync
-- ✅ daily-repo-sync
-- ✅ discord-morning-nudge
-- ✅ email-response-scheduler
-- ✅ error-monitor
-- ✅ heartbeat
-- ✅ morning-brief
-- ✅ morning-video-scripts
-- ✅ nightly-flush
-- ✅ nightly-github-sync
-- ✅ nightly-state
-- ✅ pending-nudge
-- ✅ reminder-poller
-- ✅ retainer-tracker
-- ✅ silence-detection
-- ✅ sophia-cron
-- ✅ sophia-followup
-- ✅ telegram-poller
-- ✅ weekly-memory
-
-## Repo Activity
-**Race Technik:**
-1c331d4 Read payment from booking in Yoco
-7067241 Changes
-2c0f722 Fix yoco amount handling
-d68752c Changes
-5a94658 Add OpenClaw proxy function
-
-
-
-### 19:09 SAST — Telegram
+  (no log yet today)

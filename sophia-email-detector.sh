@@ -194,16 +194,22 @@ for tid in thread_ids:
 
     client = get_client_slug(from_email)
 
-    # ── Formalization signal detection ────────────────────────────────────────
-    # Catches clients probing for employment/integration of Josh out of the agency model.
-    FORMALIZATION_KEYWORDS = [
+    # ── Repricing / formalization signal detection ────────────────────────────
+    # Catches clients probing for employment/absorption of Josh out of the agency model.
+    # When a client tries to hire you, you've accidentally undersold yourself —
+    # use it as a repricing event, not a career decision.
+    REPRICING_KEYWORDS = [
         'full-time', 'full time', 'in-house', 'in house', 'employee',
-        'integrate your team', 'bring you on board', 'hire',
+        'integrate your team', 'bring you on board', 'bring you on',
+        'hire you', 'hire', 'join us', 'exclusivity', 'salary', 'employment',
     ]
     search_text = (subject + ' ' + body).lower()
-    formalization_signal = any(kw in search_text for kw in FORMALIZATION_KEYWORDS)
+    repricing_signal = any(kw in search_text for kw in REPRICING_KEYWORDS)
 
-    initial_analysis = {"formalization_signal": True} if formalization_signal else {}
+    initial_analysis = {
+        "formalization_signal": True,
+        "repricing_trigger": True,
+    } if repricing_signal else {}
 
     # INSERT — gmail_thread_id UNIQUE prevents double-insertion at the DB level.
     # If the thread was already inserted (e.g. from a previous run that crashed

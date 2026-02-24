@@ -80,6 +80,13 @@ def patch(email_id, payload):
     ], check=False, stdout=subprocess.DEVNULL)
 
 for r in rows:
+    if isinstance(r, str):
+        try:
+            r = json.loads(r)
+        except Exception:
+            continue
+    if not isinstance(r, dict):
+        continue
     email_id=r.get('id')
     to=r.get('from_email') or ''
     subj=(r.get('subject') or '').strip()

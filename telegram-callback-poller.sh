@@ -72,6 +72,25 @@ while true; do
     continue
   fi
 
+  # ── Check for errors before touching Python ───────────────────────────────
+  ERR_CODE=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error_code',0))" 2>/dev/null || echo "0")
+  IS_OK=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if d.get('ok') else 'no')" 2>/dev/null || echo "no")
+
+  if [[ "$IS_OK" != "yes" ]]; then
+    if [[ "$ERR_CODE" == "409" ]]; then
+      # Another instance is polling — back off and let it finish
+      sleep 10
+    else
+      echo "getUpdates error $ERR_CODE: $(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('description','unknown'))" 2>/dev/null)" >&2
+      sleep 5
+    fi
+    continue
+  fi
+
+  # ── Write raw updates to disk immediately — never lose a message ───────────
+  RAW_LOG="/Users/henryburton/.openclaw/workspace-anthropic/out/telegram-raw-updates.jsonl"
+  echo "$RESP" >> "$RAW_LOG"
+
   export RESP OFFSET_FILE BOT_TOKEN SUPABASE_URL ANON_KEY SERVICE_KEY JOSH_BOT_USERNAME DEEPGRAM_API_KEY
 
   python3 - <<'PY' || true
@@ -81,8 +100,7 @@ import requests
 resp=json.loads(os.environ.get('RESP','{}'))
 if not resp.get('ok'):
     err_code = resp.get('error_code', 0)
-    if err_code != 409:  # 409 = conflict from prior instance, not worth logging
-        print(f"Telegram getUpdates not ok: {resp.get('description','unknown')}", file=sys.stderr)
+    print(f"Telegram getUpdates not ok [{err_code}]: {resp.get('description','unknown')}", file=sys.stderr)
     sys.exit(0)
 
 updates=resp.get('result', [])
@@ -90,6 +108,21 @@ if not updates:
     sys.exit(0)
 
 max_update_id=None
+
+WS_ROOT = '/Users/henryburton/.openclaw/workspace-anthropic'
+os.makedirs(f"{WS_ROOT}/tmp", exist_ok=True)
+os.makedirs(f"{WS_ROOT}/out", exist_ok=True)
+GATEWAY_ERR_LOG = f"{WS_ROOT}/out/gateway-errors.log"
+
+# Clean up temp media files older than 3 days on each poller start
+import glob, time as _time
+_cutoff = _time.time() - (3 * 86400)
+for _f in glob.glob(f"{WS_ROOT}/tmp/tg-photo-*") + glob.glob(f"{WS_ROOT}/tmp/tg-doc-*") + glob.glob(f"{WS_ROOT}/tmp/tg-video-thumb-*"):
+    try:
+        if os.path.getmtime(_f) < _cutoff:
+            os.remove(_f)
+    except Exception:
+        pass
 
 SUPABASE_URL = os.environ['SUPABASE_URL']
 ANON_KEY     = os.environ['ANON_KEY']
@@ -421,6 +454,7 @@ for u in updates:
     uid = u.get('update_id')
     if uid is not None:
         max_update_id = max(max_update_id or uid, uid)
+    uid_str = str(uid) if uid is not None else __import__('time').strftime('%Y%m%d%H%M%S')
 
     # ── Callback query (button taps) ──────────────────────────────────────────
     cq = u.get('callback_query')
@@ -598,28 +632,41 @@ for u in updates:
             f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}",
             timeout=10
         )
-        file_path = r.json()['result']['file_path']
-        data = requests.get(
+        data = r.json()
+        if not data.get('ok'):
+            raise ValueError(f"Telegram getFile failed: {data.get('description', 'unknown error')}")
+        file_path = (data.get('result') or {}).get('file_path')
+        if not file_path:
+            raise ValueError(f"Telegram getFile returned no file_path: {data}")
+        dl = requests.get(
             f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}",
-            timeout=60
-        ).content
-        return data
+            timeout=90
+        )
+        dl.raise_for_status()
+        if not dl.content:
+            raise ValueError(f"Telegram returned empty file body for {file_path}")
+        return dl.content
 
     group_history_file = f"{WS}/tmp/group-{chat_id}.jsonl" if is_group else ''
 
     # ── Photo ─────────────────────────────────────────────────────────────────
     if photo:
         try:
-            largest = max(photo, key=lambda p: p.get('file_size', 0))
-            img_data = tg_download(largest['file_id'])
-            img_path = f"{WS}/tmp/tg-photo-{uid}.jpg"
+            candidates = [p for p in photo if p.get('file_id')]
+            if not candidates:
+                tg_send(chat_id, '⚠️ Photo received but no downloadable version found.')
+                continue
+            largest   = max(candidates, key=lambda p: p.get('file_size', 0))
+            img_data  = tg_download(largest['file_id'])
+            img_path  = f"{WS}/tmp/tg-photo-{uid_str}.jpg"
             with open(img_path, 'wb') as f:
                 f.write(img_data)
-            user_text = f"[Photo from Josh]\nCaption: {caption}\nImage file: {img_path}" if caption else f"[Photo from Josh]\nImage file: {img_path}"
+            caption_part = f"\nCaption: {caption}" if caption else ""
+            user_text = f"[Photo from Josh]{caption_part}\nImage file: {img_path}"
             subprocess.Popen([
                 'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
                 str(chat_id), user_text, group_history_file,
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
         except Exception as e:
             tg_send(chat_id, f'❌ Failed to process photo: {e}')
         continue
@@ -627,8 +674,11 @@ for u in updates:
     # ── Voice message ─────────────────────────────────────────────────────────
     if voice:
         try:
-            audio_data = tg_download(voice['file_id'])
+            if not voice.get('file_id'):
+                tg_send(chat_id, '⚠️ Voice message received but no downloadable file.')
+                continue
             tg_send(chat_id, '🎙 Transcribing...')
+            audio_data = tg_download(voice['file_id'])
 
             deepgram_key = os.environ.get('DEEPGRAM_API_KEY', '')
             if not deepgram_key or deepgram_key == 'REPLACE_WITH_DEEPGRAM_API_KEY':
@@ -644,7 +694,7 @@ for u in updates:
                     },
                     method='POST',
                 )
-                with urllib.request.urlopen(req, timeout=60) as resp:
+                with urllib.request.urlopen(req, timeout=120) as resp:
                     dg = json.loads(resp.read())
                 transcript = (
                     dg.get('results', {})
@@ -668,7 +718,7 @@ for u in updates:
             subprocess.Popen([
                 'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
                 str(chat_id), user_text, group_history_file,
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
         except Exception as e:
             tg_send(chat_id, f'❌ Failed to process voice: {e}')
         continue
@@ -676,22 +726,27 @@ for u in updates:
     # ── Video / video note ────────────────────────────────────────────────────
     if video or video_note:
         try:
-            media = video or video_note
-            thumb = media.get('thumbnail') or media.get('thumb')
-            if thumb:
-                thumb_data = tg_download(thumb['file_id'])
-                thumb_path = f"{WS}/tmp/tg-video-thumb-{uid}.jpg"
-                with open(thumb_path, 'wb') as f:
-                    f.write(thumb_data)
-                label = 'Round video' if video_note else 'Video'
-                user_text = f"[{label} from Josh — showing thumbnail]\nCaption: {caption}\nThumbnail file: {thumb_path}" if caption else f"[{label} from Josh — showing thumbnail]\nThumbnail file: {thumb_path}"
+            media     = video or video_note
+            label     = 'Round video' if video_note else 'Video'
+            thumb     = media.get('thumbnail') or media.get('thumb')
+            thumb_path = None
+            if thumb and thumb.get('file_id'):
+                try:
+                    thumb_data = tg_download(thumb['file_id'])
+                    thumb_path = f"{WS}/tmp/tg-video-thumb-{uid_str}.jpg"
+                    with open(thumb_path, 'wb') as f:
+                        f.write(thumb_data)
+                except Exception:
+                    thumb_path = None  # fall back to no-thumbnail description
+            caption_part = f"\nCaption: {caption}" if caption else ""
+            if thumb_path:
+                user_text = f"[{label} from Josh — showing thumbnail]{caption_part}\nThumbnail file: {thumb_path}"
             else:
-                label = 'Round video' if video_note else 'Video'
-                user_text = f"[{label} from Josh — no thumbnail available]\n{caption}" if caption else f"[{label} from Josh received]"
+                user_text = f"[{label} from Josh received — no thumbnail]{caption_part}"
             subprocess.Popen([
                 'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
                 str(chat_id), user_text, group_history_file,
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
         except Exception as e:
             tg_send(chat_id, f'❌ Failed to process video: {e}')
         continue
@@ -699,21 +754,101 @@ for u in updates:
     # ── Document (file) ───────────────────────────────────────────────────────
     if document:
         try:
-            mime = document.get('mime_type', '')
-            fname = document.get('file_name', 'file')
-            # Only download if it's an image or small doc
-            if mime.startswith('image/'):
+            import datetime as _dt, os as _os
+            mime  = document.get('mime_type', '') or ''
+            fname = document.get('file_name', 'file') or 'file'
+            fsize = document.get('file_size', 0) or 0
+
+            # Sanitise filename — strip any path components to prevent traversal
+            fname_safe = _os.path.basename(fname).strip() or 'file'
+            fname_safe = re.sub(r'[^\w.\-() ]', '_', fname_safe)
+
+            caption_part = f"\nCaption: {caption}" if caption else ""
+            ext   = fname_safe.rsplit('.', 1)[-1].lower() if '.' in fname_safe else ''
+            fname_lower = fname_safe.lower()
+
+            is_text  = (mime in ('text/plain','application/json','text/csv','text/markdown','text/x-log')
+                        or ext in ('txt','md','csv','json','log','yaml','yml','toml','ini','xml','html','htm','sh','py','js','ts'))
+            is_image = mime.startswith('image/') or ext in ('jpg','jpeg','png','gif','webp','bmp','svg')
+            is_pdf   = mime == 'application/pdf' or ext == 'pdf'
+
+            # Telegram Bot API cannot download files > 20 MB
+            BOT_LIMIT = 20 * 1024 * 1024
+            if fsize > BOT_LIMIT:
+                tg_send(chat_id,
+                    f"⚠️ <b>{fname_safe}</b> is {fsize // (1024*1024)} MB — the bot API limit is 20 MB.\n\n"
+                    "To process a large transcript, paste the content directly:\n"
+                    "<code>research: Title\n[paste content here]</code>\n\n"
+                    "The research digest extracts the key insights automatically."
+                )
+                continue
+
+            # Download the file — all types, within size limit
+            try:
                 doc_data = tg_download(document['file_id'])
-                doc_path = f"{WS}/tmp/tg-doc-{uid}-{fname}"
-                with open(doc_path, 'wb') as f:
-                    f.write(doc_data)
-                user_text = f"[Document/image from Josh: {fname}]\nCaption: {caption}\nFile: {doc_path}" if caption else f"[Document/image from Josh: {fname}]\nFile: {doc_path}"
+            except Exception as dl_err:
+                tg_send(chat_id, f"❌ Couldn't download <b>{fname_safe}</b>: {dl_err}")
+                continue
+
+            doc_path = f"{WS}/tmp/tg-doc-{uid_str}-{fname_safe}"
+            with open(doc_path, 'wb') as f:
+                f.write(doc_data)
+
+            if is_image:
+                # Images: pass file path — Claude can view them
+                user_text = f"[Image file from Josh: {fname_safe}]{caption_part}\nFile: {doc_path}"
+                subprocess.Popen([
+                    'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
+                    str(chat_id), user_text, group_history_file,
+                ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
+
+            elif is_text:
+                # Text files: inline if small, research inbox if large
+                content_str = doc_data.decode('utf-8', errors='replace').replace('\x00', '')
+                TEXT_INLINE_LIMIT = 30_000  # ~7 500 words
+
+                if len(content_str) > TEXT_INLINE_LIMIT:
+                    # Large: auto-route to research inbox
+                    title    = fname_safe.rsplit('.', 1)[0] or 'Document'
+                    slug     = re.sub(r'[^a-z0-9]+', '-', title.lower())[:60].strip('-') or 'document'
+                    ts       = _dt.datetime.now().strftime('%Y%m%d-%H%M%S')
+                    inbox    = f"{WS}/research/inbox"
+                    fpath    = f"{inbox}/{ts}-{slug}.txt"
+                    _os.makedirs(inbox, exist_ok=True)
+                    with open(fpath, 'w', encoding='utf-8') as f:
+                        f.write(content_str)
+                    tg_send(chat_id,
+                        f"📚 <b>{fname_safe}</b> — {len(content_str)//1000}K chars queued in research inbox.\n"
+                        "Insights ready within 30 min. Check <i>Mission Control → Research</i>."
+                    )
+                else:
+                    # Small: embed inline for Claude to read directly
+                    user_text = (
+                        f"[Text file from Josh: {fname_safe}]{caption_part}\n\n"
+                        f"--- FILE CONTENT ---\n{content_str}\n--- END FILE ---"
+                    )
+                    subprocess.Popen([
+                        'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
+                        str(chat_id), user_text, group_history_file,
+                    ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
+
+            elif is_pdf:
+                # PDFs: Claude Code's Read tool can process PDFs directly
+                user_text = f"[PDF from Josh: {fname_safe}]{caption_part}\nFile: {doc_path}"
+                subprocess.Popen([
+                    'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
+                    str(chat_id), user_text, group_history_file,
+                ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
+
             else:
-                user_text = f"[Document from Josh: {fname} ({mime})]\n{caption}" if caption else f"[Document from Josh: {fname} ({mime})]"
-            subprocess.Popen([
-                'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
-                str(chat_id), user_text, group_history_file,
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # Other binary files: pass path + type — Claude can attempt to read
+                mime_display = mime or 'unknown type'
+                user_text = f"[File from Josh: {fname_safe} ({mime_display})]{caption_part}\nFile: {doc_path}"
+                subprocess.Popen([
+                    'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
+                    str(chat_id), user_text, group_history_file,
+                ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
+
         except Exception as e:
             tg_send(chat_id, f'❌ Failed to process document: {e}')
         continue
@@ -753,7 +888,7 @@ for u in updates:
                 subprocess.Popen([
                     'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
                     str(chat_id), msg_text, group_history_file,
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
             except Exception:
                 pass
         else:
@@ -775,7 +910,7 @@ for u in updates:
                 f'{WS}/scripts/telegram-batch-dispatcher.py',
                 str(chat_id),
                 group_history_file,
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
 
 # advance offset
 if max_update_id is not None:

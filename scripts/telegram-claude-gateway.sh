@@ -178,6 +178,10 @@ LONG_TERM_MEMORY=$(cat "$WS/memory/MEMORY.md" 2>/dev/null || echo "")
 CURRENT_STATE=$(cat "$WS/CURRENT_STATE.md" 2>/dev/null || echo "")
 RESEARCH_INTEL=$(cat "$WS/memory/research-intel.md" 2>/dev/null || echo "")
 
+# Load Sophia identity context
+SOPHIA_SOUL=$(cat "$WS/prompts/sophia/soul.md" 2>/dev/null || echo "")
+SOPHIA_MEMORY=$(cat "$WS/memory/sophia/memory.md" 2>/dev/null || echo "")
+
 # Inject group chat context
 if [[ -n "$GROUP_HISTORY_FILE" ]]; then
   GROUP_CONTEXT="
@@ -204,6 +208,12 @@ fi
 MEMORY_BLOCK=""
 if [[ -n "$LONG_TERM_MEMORY" ]]; then
   MEMORY_BLOCK="
+=== SOPHIA — WHO SHE IS ===
+${SOPHIA_SOUL}
+
+=== SOPHIA — MEMORY ===
+${SOPHIA_MEMORY}
+
 === LONG-TERM MEMORY ===
 ${LONG_TERM_MEMORY}
 
@@ -239,15 +249,11 @@ fi
 # ── Show typing indicator ─────────────────────────────────────────────────────
 tg_typing
 
-# ── Run Claude ───────────────────────────────────────────────────────────────
+# ── Run Claude ────────────────────────────────────────────────────────────────
 unset CLAUDECODE
-PROMPT_TMP=$(mktemp /tmp/tg-prompt-XXXXXX.txt)
-echo "$FULL_PROMPT" > "$PROMPT_TMP"
-RESPONSE=$(claude --print \
-  --dangerously-skip-permissions \
-  --model claude-sonnet-4-6 \
-  --add-dir "$WS" \
-  < "$PROMPT_TMP" 2>/dev/null)
+PROMPT_TMP=$(mktemp /tmp/tg-prompt-XXXXXX)
+printf '%s' "$FULL_PROMPT" > "$PROMPT_TMP"
+RESPONSE=$(claude --print --model claude-sonnet-4-6 < "$PROMPT_TMP" 2>>"$WS/out/gateway-errors.log")
 rm -f "$PROMPT_TMP"
 
 # ── Send response back to Telegram ───────────────────────────────────────────

@@ -46,11 +46,19 @@ and sent as a Telegram alert to Josh:
 [INTERNALISATION RISK] Client may be building internal dependency — review scope
 boundaries and consider proposing a structured retainer renewal that reinforces
 consultant positioning.
+
+⚠️ MOAT REMINDER: The skills built for this client ([MONTHS_ACTIVE] months of
+training against their real operational data) cannot be replicated quickly. An
+internal hire would need 3–4 months and R60–100k+ to reach the same baseline —
+with no institutional knowledge of the edge cases already handled. The retainer is
+ongoing evolution of a compounding system, not just support. Reframe this as a
+cost-of-switching conversation.
 ```
 
 The Telegram card includes the specific signals that triggered the flag
 (e.g. "3 emails with integration-pressure keywords in last 30 days" or
-"month 5 of retainer with escalating volume (4 → 9 emails)").
+"month 5 of retainer with escalating volume (4 → 9 emails)"), plus the moat
+framing summary with [MONTHS_ACTIVE] substituted for the actual months on retainer.
 
 ---
 
@@ -75,6 +83,50 @@ When an INTERNALISATION RISK flag fires, Josh should consider:
    the client manage day-to-day. This keeps the relationship and creates a
    re-entry point.
 
+5. **Skills library moat argument** — Frame the proprietary automation layer built
+   for this client's specific vertical as infrastructure that cannot be quickly
+   replicated by an internal hire. The argument: the skills built for this client
+   (non-conformance classification for their specific document formats, their email
+   thread patterns, their supplier data structures) are the product of
+   [MONTHS_ACTIVE] months of training against their real operational data. An
+   internal hire starting from scratch would need 3–4 months and R60–100k+ to reach
+   the same baseline — and would have no institutional knowledge of the edge cases
+   the system has already encountered. The retainer is not just support; it is
+   ongoing evolution of a system that compounds with usage. Use this framing to
+   reframe internalisation risk as a cost-of-switching conversation, not a
+   capability discussion.
+
+---
+
+---
+
+## Vertical Expansion Pitch Trigger (QMS clients)
+
+**Source:** Meeting: Ascend LC / Amalfi AI
+
+When a client whose `notes` field contains `qms` (case-insensitive) crosses
+**60 days on retainer** (measured from the earliest paid/invoiced `income_entries`
+record), a Telegram nudge is sent to Josh identifying the three adjacent verticals
+confirmed in meeting research:
+
+1. **logistics/supply chain** — goods-in and delivery exception NCRs
+2. **professional services** — ISO-certified engineering/consulting firms
+3. **property/construction** — snag lists and defect sign-offs
+
+**Pitch template included in nudge:**
+
+> The QR→form→agent→approval pipeline we built for [client] is near-transferable
+> to [vertical] — want me to draft a 3-sentence cold pitch?
+
+**Deduplication:** once fired, the nudge is suppressed for 30 days to avoid
+repeated alerts on subsequent monthly runs. History stored in
+`tmp/vertical-expansion-nudge.json`.
+
+**Rationale:** operationalises the prototype-to-retainer funnel research signal —
+60 days is enough runway to have proven the pipeline; adjacent verticals identified
+share the same QR→form→agent→approval architecture and are near-zero rework to
+adapt.
+
 ---
 
 ## Approval Rules
@@ -82,3 +134,5 @@ When an INTERNALISATION RISK flag fires, Josh should consider:
 Payment chase emails: always require Josh's approval (`status = awaiting_approval`).
 Internalisation risk alerts: sent directly to Telegram as informational flags —
 no email queued automatically. Josh decides on the response.
+Vertical expansion nudges: sent directly to Telegram as informational flags —
+no email queued automatically. Josh decides whether to draft the cold pitch.

@@ -54,9 +54,17 @@ Return **exactly** this format — no preamble:
 - [what's working or not for SMBs adopting AI]
 (2–3 bullets)
 
+## South Africa / Emerging Market Signals
+- [named SA company, vertical, or active AI deployment with strategic implication]
+(1–3 bullets when SA content is present; omit section entirely if source has no SA-specific content)
+
 ## Client-Relevant Intelligence
 - [insight for specific verticals: legal / recruitment / logistics / finance / property]
 (2–4 bullets)
+
+## Workflow Productisation Candidates
+- [a specific recurring task pattern from this source that could be encoded as a reusable Claude skill — name the task, the trigger, and the expected output]
+(1–3 bullets; omit section if source contains no repeatable task patterns)
 
 ## Quotable Signal
 One sentence — the single most important takeaway from this source.
@@ -67,6 +75,18 @@ One word only — low, medium, or high — rating how complete and substantive t
 - medium = partial but usable
 - low    = heavily summarised, truncated, or thin
 ```
+
+---
+
+## SA / Emerging Market Extraction Rule
+
+**Mandatory:** If the source mentions a named SA company, vertical, or AI deployment, always populate `## South Africa / Emerging Market Signals` and map findings to active Amalfi AI client verticals (logistics, legal, recruitment, property, professional services) under `## Client-Relevant Intelligence`. Do not leave these sections empty when SA-relevant content is present.
+
+---
+
+## Productisation Rule
+
+**PRODUCTISATION RULE:** A Workflow Productisation Candidate is a recurring, bounded task that: (a) a human or VA currently does manually, (b) has clear inputs and outputs, (c) could run as a Claude skill with no human in the loop. Examples: scrape 1000 LinkedIn profiles → structured CSV; label email inbox by sender intent; generate proposal from voice brief. Always include the vertical when known.
 
 ---
 

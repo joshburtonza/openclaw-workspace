@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <key>Label</key>
+    <string>com.racetechnik.morning-brief</string>
+
+    <!--
+        Daily at 07:30 SAST.
+        NOTE: launchd StartCalendarInterval uses LOCAL system time.
+        Mac Mini must be set to Africa/Johannesburg (SAST = UTC+2).
+        07:30 local = 05:30 UTC — do NOT adjust this value for UTC.
+    -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/raceai/.amalfiai/workspace/scripts/morning-brief.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/raceai</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/raceai/.amalfiai/workspace/out/morning-brief.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/raceai/.amalfiai/workspace/out/morning-brief.err.log</string>
+
+</dict>
+</plist>

@@ -142,6 +142,14 @@ else:
         print(f"  ⏰ {r[\"title\"]} — due {due}")
 ' 2>/dev/null || echo "  (none)")
 
+# ── Scope creep alerts (written by retainer-tracker) ─────────────────────────
+SCOPE_FLAGS=""
+if [[ -f "$WORKSPACE/tmp/scope-creep-flags.txt" ]] && [[ -s "$WORKSPACE/tmp/scope-creep-flags.txt" ]]; then
+  SCOPE_FLAGS=$(sed 's/^/  ⚠️ /' "$WORKSPACE/tmp/scope-creep-flags.txt")
+else
+  SCOPE_FLAGS="  (none)"
+fi
+
 # ── Today's log file ──────────────────────────────────────────────────────────
 TODAY_LOG=""
 if [[ -f "$WORKSPACE/memory/${TODAY}.md" ]]; then
@@ -175,6 +183,9 @@ ${REPO_SUMMARY}
 
 ## Recent Activity
 ${RECENT_ACTIVITY}
+
+## Scope Creep Alerts
+${SCOPE_FLAGS}
 
 ## Today's Log
 ${TODAY_LOG}

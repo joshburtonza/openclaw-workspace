@@ -19,7 +19,7 @@ source "$WS/scripts/lib/task-helpers.sh"
 SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-CHAT_ID="7584896900"
+CHAT_ID="1140320036"
 MODEL="claude-sonnet-4-6"
 INBOX="$WS/research/inbox"
 ARCHIVE="$WS/research/archive"
@@ -47,6 +47,7 @@ INBOX        = os.environ['INBOX']
 ARCHIVE      = os.environ['ARCHIVE']
 INTEL_FILE   = os.environ['INTEL_FILE']
 WS           = os.environ['WS']
+ERRORS_DIR   = f"{WS}/research/errors"
 
 # ── HTML text extractor ──────────────────────────────────────────────────────────
 
@@ -167,9 +168,11 @@ def check_completeness(content):
            high   → 800+ words, no signals
     """
     words = len(content.split())
-    lower = content.lower()
+    # Only scan the last 500 chars for truncation signals — avoids false positives
+    # when phrases like "cut off" appear naturally in the body of a transcript
+    tail_check = content.strip()[-500:].lower() if len(content.strip()) > 500 else content.strip().lower()
 
-    signals_found = [s for s in TRUNCATION_SIGNALS if s in lower]
+    signals_found = [s for s in TRUNCATION_SIGNALS if s in tail_check]
 
     # Check if content ends mid-sentence (no .!? in last 200 chars)
     tail = content.strip()[-200:] if len(content.strip()) > 200 else content.strip()
@@ -261,14 +264,44 @@ def log_rejection(title, content, reason, date_str):
     )
 
 
+def log_truncation_error(title, char_count, filename=None):
+    """Log truncated source to research/errors/ for manual review."""
+    os.makedirs(ERRORS_DIR, exist_ok=True)
+    ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    file_line = f"  File:  {filename}\n" if filename else ""
+    entry = (
+        f"[{ts}] TRUNCATED: {title}\n"
+        f"  Chars: {char_count}\n"
+        f"{file_line}"
+        f"\n"
+    )
+    log_path = f"{ERRORS_DIR}/truncated.log"
+    with open(log_path, 'a') as f:
+        f.write(entry)
+    print(f"  Logged → {log_path}")
+
+
 # ── Claude: extract insights ─────────────────────────────────────────────────────
 
-def extract_insights(title, content):
-    """Send source to Claude, get structured intelligence back."""
-    if len(content) > 14000:
-        content = content[:14000] + "\n\n[... truncated ...]"
+def _run_claude_prompt(prompt_text):
+    """Write a prompt to a temp file and run claude --print. Returns stdout."""
+    env = {k: v for k, v in os.environ.items() if k not in ('CLAUDECODE', 'CLAUDE_CODE')}
+    env['PATH'] = '/opt/homebrew/bin:/usr/local/bin:' + env.get('PATH', '/usr/bin:/bin')
+    with tempfile.NamedTemporaryFile(mode='w', suffix='', delete=False, prefix='/tmp/research-prompt-') as f:
+        f.write(prompt_text)
+        pf = f.name
+    result = subprocess.run(
+        ['claude', '--print', '--model', MODEL],
+        stdin=open(pf), capture_output=True, text=True, timeout=300, env=env,
+    )
+    os.unlink(pf)
+    if not result.stdout.strip():
+        raise ValueError(f"Empty response from Claude: {result.stderr[:200]}")
+    return result.stdout.strip()
 
-    prompt = f"""You are a strategic intelligence analyst for Amalfi AI, a boutique AI automation agency in South Africa run by Josh. Josh builds AI agents and automation systems for SMB clients and is closely tracking the AI agent/automation space.
+
+def _insight_prompt(title, content):
+    return f"""You are a strategic intelligence analyst for Amalfi AI, a boutique AI automation agency in South Africa run by Josh. Josh builds AI agents and automation systems for SMB clients and is closely tracking the AI agent/automation space.
 
 RESEARCH SOURCE: {title}
 
@@ -280,7 +313,7 @@ Extract strategic intelligence relevant to:
 2. Business model patterns and pricing signals for AI agencies
 3. SMB adoption — what's working, what's failing, what's next
 4. Client verticals Josh serves: legal, recruitment, logistics, property, professional services
-5. South African or emerging market angles
+5. South African or emerging market angles — named companies, active deployments, vertical-specific SA dynamics
 
 Return EXACTLY this format — no preamble:
 
@@ -300,6 +333,11 @@ Return EXACTLY this format — no preamble:
 - [what's working or not for SMBs adopting AI]
 (2-3 bullets)
 
+## South Africa / Emerging Market Signals
+- [named SA company, vertical, or active AI deployment with strategic implication]
+(1-3 bullets when SA content is present; omit section entirely if source has no SA-specific content)
+IMPORTANT: If the source mentions a named SA company, vertical, or AI deployment, always populate this section and map findings to active Amalfi AI client verticals (logistics, legal, recruitment, property, professional services) under Client-Relevant Intelligence below.
+
 ## Client-Relevant Intelligence
 - [insight for specific verticals: legal / recruitment / logistics / finance / property]
 (2-4 bullets)
@@ -310,21 +348,60 @@ One sentence — the single most important takeaway from this source.
 ## Completeness Score
 One word only — low, medium, or high — rating how complete and substantive the source content is (high = full transcript/article with rich detail; medium = partial but usable; low = heavily summarised, truncated, or thin)."""
 
-    env = {k: v for k, v in os.environ.items() if k not in ('CLAUDECODE', 'CLAUDE_CODE')}
-    with tempfile.NamedTemporaryFile(mode='w', suffix='', delete=False, prefix='/tmp/research-prompt-') as f:
-        f.write(prompt)
-        pf = f.name
 
-    result = subprocess.run(
-        ['claude', '--print', '--model', MODEL],
-        stdin=open(pf), capture_output=True, text=True, timeout=120, env=env,
+def _synthesise_chunks(title, chunk_insights):
+    """Merge per-chunk insights into a single unified extraction."""
+    combined = '\n\n---\n\n'.join(
+        f"[Part {i+1}]\n{ins}" for i, ins in enumerate(chunk_insights)
     )
-    os.unlink(pf)
+    prompt = f"""You are a strategic intelligence analyst. You have processed a long source document in {len(chunk_insights)} parts. Below are the per-part extractions. Merge them into a single, de-duplicated intelligence report using the same section headings. Remove repetition, keep every unique insight.
 
-    if not result.stdout.strip():
-        raise ValueError(f"Empty response from Claude: {result.stderr[:200]}")
+SOURCE: {title}
 
-    return result.stdout.strip()
+PER-PART EXTRACTIONS:
+{combined}
+
+Return the merged report in the same format (## Key Themes, ## Business Model Signals, etc.). No preamble."""
+    return _run_claude_prompt(prompt)
+
+
+def extract_insights(title, content):
+    """
+    Extract strategic intelligence from content.
+    Handles documents of any size by chunking — nothing is truncated.
+    """
+    # Claude sonnet-4-6 has a 200K token context window.
+    # ~100K chars ≈ 25K tokens — well within limits for a single pass.
+    # Chunk at 90K with 2K overlap so context bridges chunk boundaries.
+    MAX_DIRECT  = 600_000  # process in one shot if under this (~150K tokens)
+    CHUNK_SIZE  = 500_000  # size of each chunk (~125K tokens)
+    CHUNK_OVERLAP = 5_000  # overlap to avoid cutting mid-sentence
+
+    if len(content) <= MAX_DIRECT:
+        return _run_claude_prompt(_insight_prompt(title, content))
+
+    # Large document: split into overlapping chunks
+    chunks = []
+    pos = 0
+    while pos < len(content):
+        end = min(pos + CHUNK_SIZE, len(content))
+        chunks.append(content[pos:end])
+        if end == len(content):
+            break
+        pos = end - CHUNK_OVERLAP
+
+    print(f"  Large document ({len(content):,} chars) — processing {len(chunks)} chunks")
+    chunk_insights = []
+    for i, chunk in enumerate(chunks, 1):
+        print(f"  Chunk {i}/{len(chunks)} ({len(chunk):,} chars)...")
+        insight = _run_claude_prompt(_insight_prompt(f"{title} [part {i}/{len(chunks)}]", chunk))
+        chunk_insights.append(insight)
+
+    if len(chunk_insights) == 1:
+        return chunk_insights[0]
+
+    print(f"  Synthesising {len(chunk_insights)} chunks...")
+    return _synthesise_chunks(title, chunk_insights)
 
 # ── Claude: identify implementation gaps ────────────────────────────────────────
 
@@ -381,13 +458,14 @@ Return ONLY a JSON array (no markdown, no explanation):
 If there are genuinely no worthwhile implementation gaps from this research, return: []"""
 
     env = {k: v for k, v in os.environ.items() if k not in ('CLAUDECODE', 'CLAUDE_CODE')}
+    env['PATH'] = '/opt/homebrew/bin:/usr/local/bin:' + env.get('PATH', '/usr/bin:/bin')
     with tempfile.NamedTemporaryFile(mode='w', suffix='', delete=False, prefix='/tmp/gaps-prompt-') as f:
         f.write(prompt)
         pf = f.name
 
     result = subprocess.run(
         ['claude', '--print', '--model', MODEL],
-        stdin=open(pf), capture_output=True, text=True, timeout=60, env=env,
+        stdin=open(pf), capture_output=True, text=True, timeout=300, env=env,
     )
     os.unlink(pf)
 
@@ -444,6 +522,44 @@ def create_gap_tasks(title, gaps):
 
     return created
 
+# ── Top-level section helpers ────────────────────────────────────────────────────
+
+def _extract_section_bullets(insights, section_name):
+    """Extract bullet content from a named ## section in extracted insights."""
+    header = f"## {section_name}\n"
+    idx = insights.find(header)
+    if idx == -1:
+        return ''
+    start = idx + len(header)
+    next_section = insights.find('\n## ', start)
+    section_content = insights[start:next_section].strip() if next_section != -1 else insights[start:].strip()
+    if not section_content:
+        return ''
+    # Skip placeholder / no-signal content
+    skip_phrases = [
+        'no sa-specific signals', 'no sa signals', 'insufficient data',
+        'no vertical-specific', 'not extractable', 'no signals in this source',
+        'no specific', 'insufficient content', '*(source is', '*(source content',
+        'omit section', 'n/a',
+    ]
+    if any(p in section_content.lower() for p in skip_phrases):
+        return ''
+    return section_content
+
+def _append_to_top_section(content, section_name, insights, source_title, date_str):
+    """Append extracted bullets from insights to the first (top-level) ## section in the intel file."""
+    bullets = _extract_section_bullets(insights, section_name)
+    if not bullets:
+        return content
+    short_title = source_title[:80]
+    entry = f"\n**{date_str} — {short_title}:**\n{bullets}\n"
+    header = f"## {section_name}\n"
+    idx = content.find(header)
+    if idx == -1:
+        return content
+    insert_pos = idx + len(header)
+    return content[:insert_pos] + entry + content[insert_pos:]
+
 # ── Update research-intel.md ─────────────────────────────────────────────────────
 
 def update_intel_file(title, insights, date_str):
@@ -466,6 +582,10 @@ def update_intel_file(title, insights, date_str):
         new_content,
     )
     new_content = re.sub(r'\*Will populate as transcripts are processed\.\*\n', '', new_content)
+
+    # Append SA signals + Client-Relevant Intelligence to top-level aggregated sections
+    new_content = _append_to_top_section(new_content, 'South Africa / Emerging Market Signals', insights, title, date_str)
+    new_content = _append_to_top_section(new_content, 'Client-Relevant Intelligence', insights, title, date_str)
 
     if '---\n\n*Sources processed:' in new_content:
         new_content = new_content.replace(
@@ -502,7 +622,7 @@ def sync_intel_to_supabase():
 
 # ── Process a single source ──────────────────────────────────────────────────────
 
-def process_source(title, content, date_str):
+def process_source(title, content, date_str, filename=None):
     """Full pipeline for one source: insights + gaps + intel update."""
     # If content looks like a URL, fetch it
     stripped = content.strip()
@@ -510,6 +630,31 @@ def process_source(title, content, date_str):
         print(f"  Fetching URL: {stripped[:80]}...")
         content = fetch_url(stripped)
         print(f"  Fetched {len(content)} chars")
+
+    # ── Truncation guard: hard skip if under 300 chars ───────────────────
+    char_count = len(content)
+    if char_count < 300:
+        warning = (
+            f"STATUS: TRUNCATED — source under {char_count} chars, skipping extraction\n\n"
+            f"*Char count: {char_count}. Re-submit with the full source content to process.*"
+        )
+        log_truncation_error(title, char_count, filename)
+        update_intel_file(title, warning, date_str)
+        sync_intel_to_supabase()
+        print(f"  ⛔ Truncation guard: {char_count} chars < 300 — skipping extraction")
+        tg(
+            f"⛔ <b>Research source skipped (too short)</b>\n\n"
+            f"<b>{title}</b>\n"
+            f"<i>{char_count} chars — under 300-char minimum.\n"
+            f"Re-submit full content to process this source.</i>"
+        )
+        fake_completeness = {
+            "score": "low", "truncated": True,
+            "reasons": [f"{char_count} chars < 300 minimum"],
+            "word_count": len(content.split()),
+        }
+        return warning, 0, fake_completeness
+    # ─────────────────────────────────────────────────────────────────────
 
     if len(content) < 100:
         raise ValueError("Content too short (< 100 chars) — skipping")
@@ -591,7 +736,7 @@ for filepath in inbox_files:
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read().strip()
 
-        insights, tasks_n, completeness = process_source(title, content, date_str)
+        insights, tasks_n, completeness = process_source(title, content, date_str, filename=filename)
         new_tasks += tasks_n
 
         # Log to research_sources

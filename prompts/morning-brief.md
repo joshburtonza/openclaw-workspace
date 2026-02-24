@@ -15,7 +15,12 @@ Include when available:
 - urgent ops (approvals, failures)
 - client repo changes in last 24h
 - tasks or reminders due today
-- one small AI or industry note if quick (optional)
+- pipeline velocity: proposals sent or awaiting response (flag any >5 days without client reply, and current open proposal count if dashboard data includes it)
+- one small AI or industry note from today's AI news digest (optional — only if it fits in word count)
+
+Note: A full AI news digest (3-5 headlines with relevance notes) is sent as a separate Telegram message BEFORE this voice brief, so Josh sees it first. Only surface the single most interesting item here if space allows.
+
+Note: A separate SA Market Intelligence block is also sent covering AI enterprise adoption signals in SA verticals (mining, logistics, legal, property). Do not duplicate this in the voice brief unless it directly affects Josh's day.
 
 Then:
 1) Convert the brief text to an OPUS voice note using ElevenLabs (male voice Roger, model eleven_turbo_v2_5):

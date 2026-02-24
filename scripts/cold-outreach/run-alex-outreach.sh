@@ -16,7 +16,7 @@ SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 FROM_ACCOUNT="alex@amalfiai.com"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-CHAT_ID="7584896900"
+CHAT_ID="1140320036"
 MODEL="claude-sonnet-4-6"
 LOG="$WS/out/alex-outreach.log"
 
