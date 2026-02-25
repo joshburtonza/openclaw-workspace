@@ -13,6 +13,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 CHAT_ID="${1:-}"
 USER_MSG="${2:-}"
 GROUP_HISTORY_FILE="${3:-}"   # optional: path to group chat history jsonl
+REPLY_MODE="${4:-text}"       # "audio" → send MiniMax TTS voice note; "text" → plain text
 
 if [[ -z "$CHAT_ID" || -z "$USER_MSG" ]]; then
   echo "Usage: $0 <chat_id> <message> [group_history_file]" >&2
@@ -258,12 +259,59 @@ rm -f "$PROMPT_TMP"
 
 # ── Send response back to Telegram ───────────────────────────────────────────
 if [[ -n "$RESPONSE" ]]; then
-  # Telegram has 4096 char limit — split if needed
-  if [[ ${#RESPONSE} -le 4000 ]]; then
-    tg_send "$RESPONSE"
+
+  # ── Audio reply (voice note input → MiniMax TTS voice note output) ──────────
+  if [[ "$REPLY_MODE" == "audio" ]]; then
+    # Strip markdown so it doesn't get spoken as symbols
+    export _TTS_RESPONSE="$RESPONSE"
+    CLEAN_TEXT=$(python3 - <<'PYSTRIP' 2>/dev/null
+import re, os
+text = os.environ.get('_TTS_RESPONSE', '')
+text = re.sub(r'\*\*(.+?)\*\*', r'\1', text, flags=re.DOTALL)
+text = re.sub(r'\*(.+?)\*', r'\1', text)
+text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
+text = re.sub(r'`(.+?)`', r'\1', text)
+text = re.sub(r'^#{1,6}\s*', '', text, flags=re.MULTILINE)
+text = re.sub(r'^[-*\u2022]\s+', '', text, flags=re.MULTILINE)
+text = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', text)
+text = re.sub(r'<[^>]+>', '', text)
+text = re.sub(r'\n{3,}', '\n\n', text)
+print(text.strip()[:4500])
+PYSTRIP
+    || true)
+
+    AUDIO_OUT="/tmp/tg-voice-${CHAT_ID}-$(date +%s).opus"
+    TTS_OK=0
+
+    if [[ -n "$CLEAN_TEXT" ]]; then
+      # Show upload_voice action while TTS renders
+      curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendChatAction" \
+        -H "Content-Type: application/json" \
+        -d "{\"chat_id\": \"${CHAT_ID}\", \"action\": \"upload_voice\"}" >/dev/null 2>&1 || true
+
+      if echo "$CLEAN_TEXT" | bash "$WS/scripts/tts/minimax-tts-to-opus.sh" --out "$AUDIO_OUT" 2>>"$WS/out/gateway-errors.log"; then
+        TTS_RESP=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendVoice" \
+          -F "chat_id=${CHAT_ID}" \
+          -F "voice=@${AUDIO_OUT}" 2>/dev/null || echo "")
+        TTS_OK=$(echo "$TTS_RESP" | python3 -c "import sys,json; print(1 if json.load(sys.stdin).get('ok') else 0)" 2>/dev/null || echo "0")
+      fi
+    fi
+
+    rm -f "$AUDIO_OUT" 2>/dev/null || true
+
+    if [[ "$TTS_OK" != "1" ]]; then
+      # TTS failed — fall back to text so the response is never lost
+      tg_send "$RESPONSE"
+    fi
+
+  # ── Text reply ───────────────────────────────────────────────────────────────
   else
-    # Split on double newlines
-    echo "$RESPONSE" | python3 - <<PY
+    # Telegram has 4096 char limit — split if needed
+    if [[ ${#RESPONSE} -le 4000 ]]; then
+      tg_send "$RESPONSE"
+    else
+      # Split on double newlines
+      echo "$RESPONSE" | python3 - <<PY
 import os, subprocess, sys
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN','')
@@ -294,9 +342,10 @@ for chunk in chunks:
         })
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 PY
+    fi
   fi
 
-  # Store response in history
+  # Store response in history (same for both reply modes)
   if [[ -n "$GROUP_HISTORY_FILE" ]]; then
     # Write bot's own response to the shared group history
     TS=$(date '+%H:%M')

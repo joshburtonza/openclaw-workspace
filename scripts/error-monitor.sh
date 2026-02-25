@@ -34,6 +34,7 @@ send_telegram() {
 
 RESTART_ALERTS=""
 RESTART_FAILED=""
+FAILED_AGENTS=""   # plain list for auto-healer — format: "agent|||reason\n"
 
 while IFS=$'\t' read -r PID EXIT_CODE LABEL; do
   # Skip healthy states: running (-), clean exit (0), or SIGTERM (-15 = clean stop by launchd/user)
@@ -68,6 +69,7 @@ while IFS=$'\t' read -r PID EXIT_CODE LABEL; do
     echo "  $AGENT restart: OK"
   else
     RESTART_FAILED="${RESTART_FAILED}❌ <b>${AGENT}</b> still failing (exit ${NEW_EXIT} after restart)\n"
+    FAILED_AGENTS="${FAILED_AGENTS}${AGENT}|||still failing after restart attempt (exit ${NEW_EXIT})"$'\n'
     echo "  $AGENT restart: FAILED (still exit $NEW_EXIT)" >&2
   fi
 done < <(launchctl list | grep com.amalfiai)
@@ -84,6 +86,7 @@ NOW=$(date +%s)
 echo "$NOW" > "$STATE_FILE"
 
 ERRORS_FOUND=""
+RAW_ERROR_TASKS=""  # plain list for auto-healer — format: "agent|||error_excerpt\n"
 
 for ERR_LOG in "$OUT_DIR"/*.err.log; do
   [[ -f "$ERR_LOG" ]] || continue
@@ -110,6 +113,9 @@ for ERR_LOG in "$OUT_DIR"/*.err.log; do
 <b>${AGENT_NAME}</b>:
 <code>${FILTERED}</code>
 "
+    # Track for auto-healer task creation (one line, truncated)
+    FILTERED_BRIEF=$(echo "$FILTERED" | tr '\n' ' ' | cut -c1-300)
+    RAW_ERROR_TASKS="${RAW_ERROR_TASKS}${AGENT_NAME}|||${FILTERED_BRIEF}"$'\n'
   fi
 done
 
@@ -142,4 +148,100 @@ elif [[ -n "$RESTART_ALERTS" ]]; then
   echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") Auto-restarted agents: $(echo -e "$RESTART_ALERTS" | grep -o 'b>.*</b' | tr -d 'b></' | tr '\n' ' ')"
 else
   echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") All agents healthy"
+fi
+
+# ── 4. Auto-healer — create tasks for persistent errors ──────────────────────
+
+SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
+if [[ -n "$SUPABASE_KEY" ]] && [[ -n "$FAILED_AGENTS" || -n "$RAW_ERROR_TASKS" ]]; then
+  export _EM_KEY="$SUPABASE_KEY" \
+         _EM_URL="https://afmpbtynucpbglwtbfuz.supabase.co" \
+         _EM_FAILED="$FAILED_AGENTS" \
+         _EM_ERRORS="$RAW_ERROR_TASKS"
+
+  python3 - <<'PYEOF'
+import os, json, urllib.request, urllib.parse
+
+KEY = os.environ['_EM_KEY']
+URL = os.environ['_EM_URL']
+
+def task_exists(title):
+    """Return True if a todo/in_progress task with this title already exists."""
+    encoded = urllib.parse.quote(title)
+    req = urllib.request.Request(
+        f"{URL}/rest/v1/tasks?title=eq.{encoded}&status=in.(todo,in_progress)&select=id&limit=1",
+        headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.loads(r.read())
+            return len(rows) > 0
+    except Exception:
+        return False
+
+def create_task(title, description):
+    if task_exists(title):
+        print(f"[auto-healer] Already queued: {title}")
+        return
+    data = json.dumps({
+        "title":       title,
+        "description": description,
+        "assigned_to": "Claude",
+        "created_by":  "error-monitor",
+        "priority":    "high",
+        "status":      "todo",
+        "tags":        ["auto-healer"],
+    }).encode()
+    req = urllib.request.Request(
+        f"{URL}/rest/v1/tasks",
+        data=data,
+        headers={"apikey": KEY, "Authorization": f"Bearer {KEY}",
+                 "Content-Type": "application/json", "Prefer": "return=minimal"},
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        print(f"[auto-healer] Task created: {title}")
+    except Exception as e:
+        print(f"[auto-healer] Failed to create task '{title}': {e}")
+
+# Process restart failures
+for line in os.environ.get('_EM_FAILED', '').strip().split('\n'):
+    line = line.strip()
+    if not line or '|||' not in line:
+        continue
+    agent, reason = line.split('|||', 1)
+    agent = agent.strip()
+    title = f"Fix crashed agent: {agent}"
+    desc  = (
+        f"The LaunchAgent '{agent}' (com.amalfiai.{agent}) failed to restart and is still exiting with an error.\n\n"
+        f"Reason: {reason.strip()}\n\n"
+        f"Steps to investigate:\n"
+        f"1. Check logs: tail -50 /Users/henryburton/.openclaw/workspace-anthropic/out/{agent}.err.log\n"
+        f"2. Read the script: cat /Users/henryburton/.openclaw/workspace-anthropic/scripts/{agent}.sh\n"
+        f"3. Test manually: bash /Users/henryburton/.openclaw/workspace-anthropic/scripts/{agent}.sh\n"
+        f"4. Fix root cause and reload: launchctl unload ~/Library/LaunchAgents/com.amalfiai.{agent}.plist "
+        f"&& launchctl load ~/Library/LaunchAgents/com.amalfiai.{agent}.plist"
+    )
+    create_task(title, desc)
+
+# Process log errors
+for line in os.environ.get('_EM_ERRORS', '').strip().split('\n'):
+    line = line.strip()
+    if not line or '|||' not in line:
+        continue
+    agent, error_excerpt = line.split('|||', 1)
+    agent = agent.strip()
+    title = f"Fix log errors: {agent}"
+    desc  = (
+        f"New errors were detected in {agent}.err.log.\n\n"
+        f"Error excerpt:\n{error_excerpt.strip()}\n\n"
+        f"Steps to investigate:\n"
+        f"1. Review full log: tail -50 /Users/henryburton/.openclaw/workspace-anthropic/out/{agent}.err.log\n"
+        f"2. Read the script to understand the error: cat /Users/henryburton/.openclaw/workspace-anthropic/scripts/{agent}.sh\n"
+        f"3. Identify and fix the root cause\n"
+        f"4. Test manually if possible, then reload the LaunchAgent if the script was modified"
+    )
+    create_task(title, desc)
+PYEOF
 fi

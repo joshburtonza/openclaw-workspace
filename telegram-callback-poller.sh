@@ -717,7 +717,7 @@ for u in updates:
 
             subprocess.Popen([
                 'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
-                str(chat_id), user_text, group_history_file,
+                str(chat_id), user_text, group_history_file, 'audio',
             ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
         except Exception as e:
             tg_send(chat_id, f'❌ Failed to process voice: {e}')
