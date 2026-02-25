@@ -122,10 +122,15 @@ PY
 
   # ── Parse task fields ────────────────────────────────────────────────────────
 
-  TASK_ID=$(echo "$TASK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-  TASK_TITLE=$(echo "$TASK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['title'])")
-  TASK_DESC=$(echo "$TASK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['description'] or '')")
-  TASK_PRIORITY=$(echo "$TASK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('priority','normal'))")
+  TASK_ID=$(echo "$TASK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" 2>/dev/null || echo "")
+  TASK_TITLE=$(echo "$TASK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['title'])" 2>/dev/null || echo "")
+  TASK_DESC=$(echo "$TASK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['description'] or '')" 2>/dev/null || echo "")
+  TASK_PRIORITY=$(echo "$TASK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('priority','normal'))" 2>/dev/null || echo "normal")
+
+  if [[ -z "$TASK_ID" || -z "$TASK_TITLE" ]]; then
+    log "ERROR: Could not parse task JSON — skipping"
+    break
+  fi
 
   # Extract repo key from metadata (e.g. metadata.repo = "qms-guard")
   REPO_KEY=$(echo "$TASK_JSON" | python3 - <<'PY'

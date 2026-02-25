@@ -19,7 +19,7 @@ CHAT_ID="1140320036"
 export SUPABASE_URL SERVICE_KEY BOT_TOKEN CHAT_ID
 
 python3 - <<'PY'
-import os, json, requests, datetime
+import os, json, sys, requests, datetime
 
 SUPABASE_URL = os.environ['SUPABASE_URL']
 KEY          = os.environ['SERVICE_KEY']
@@ -62,7 +62,9 @@ resp = requests.get(
     headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}'},
     timeout=20
 )
-resp.raise_for_status()
+if resp.status_code != 200:
+    print(f"[reminder-poller] Supabase error {resp.status_code}: {resp.text[:200]}", file=sys.stderr)
+    raise SystemExit(0)
 reminders = resp.json()
 
 fired = 0

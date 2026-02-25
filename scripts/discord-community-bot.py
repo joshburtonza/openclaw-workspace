@@ -20,6 +20,7 @@ import urllib.request
 import urllib.parse
 import re
 import sys
+import signal
 from datetime import datetime, timezone
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -273,4 +274,14 @@ if not TOKEN:
     print("ERROR: DISCORD_BOT_TOKEN not set in .env.scheduler", file=sys.stderr)
     sys.exit(1)
 
-client.run(TOKEN)
+# Clean shutdown on SIGTERM (launchd stop) — exit 0 so error-monitor doesn't flag it
+def _sigterm_handler(signum, frame):
+    print("[shutdown] SIGTERM received — closing bot cleanly", flush=True)
+    if client.loop and client.loop.is_running():
+        client.loop.call_soon_threadsafe(client.loop.stop)
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, _sigterm_handler)
+signal.signal(signal.SIGINT, _sigterm_handler)
+
+client.run(TOKEN, log_handler=None)

@@ -36,12 +36,16 @@ RESTART_ALERTS=""
 RESTART_FAILED=""
 
 while IFS=$'\t' read -r PID EXIT_CODE LABEL; do
-  # Only care about non-zero exits (not "-" which means not running yet)
-  [[ "$EXIT_CODE" == "0" || "$EXIT_CODE" == "-" ]] && continue
+  # Skip healthy states: running (-), clean exit (0), or SIGTERM (-15 = clean stop by launchd/user)
+  [[ "$EXIT_CODE" == "0" || "$EXIT_CODE" == "-" || "$EXIT_CODE" == "-15" ]] && continue
   [[ "$LABEL" != com.amalfiai.* ]] && continue
 
   # Skip error-monitor itself (avoid self-restart loop)
   [[ "$LABEL" == "com.amalfiai.error-monitor" ]] && continue
+
+  # Skip KeepAlive persistent bots — launchd handles their restart automatically
+  [[ "$LABEL" == "com.amalfiai.discord-community-bot" ]] && continue
+  [[ "$LABEL" == "com.amalfiai.telegram-poller" ]] && continue
 
   AGENT="${LABEL#com.amalfiai.}"
   echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") Agent $AGENT exited $EXIT_CODE — attempting restart"
@@ -52,18 +56,14 @@ while IFS=$'\t' read -r PID EXIT_CODE LABEL; do
   launchctl start "$LABEL" 2>/dev/null || true
   sleep 5
 
-  # Recheck
-  NEW_EXIT=$(launchctl list "$LABEL" 2>/dev/null | python3 -c "
-import sys
-for line in sys.stdin:
-    parts = line.strip().split()
-    if len(parts) >= 2:
-        print(parts[1])
-        break
-print('?')
-" 2>/dev/null | head -1 || echo "?")
+  # Recheck — use tabular launchctl list (not single-label plist format)
+  NEW_LINE=$(launchctl list 2>/dev/null | grep "$LABEL" || echo "")
+  NEW_PID=$(echo "$NEW_LINE" | awk '{print $1}')
+  NEW_EXIT=$(echo "$NEW_LINE" | awk '{print $2}')
 
-  if [[ "$NEW_EXIT" == "0" || "$NEW_EXIT" == "-" ]]; then
+  # Success if process is running (PID is a number) or exit was clean
+  if [[ "$NEW_EXIT" == "0" || "$NEW_EXIT" == "-" || "$NEW_EXIT" == "-15" ]] || \
+     [[ "$NEW_PID" =~ ^[0-9]+$ ]]; then
     RESTART_ALERTS="${RESTART_ALERTS}✅ <b>${AGENT}</b> restarted successfully (was exit ${EXIT_CODE})\n"
     echo "  $AGENT restart: OK"
   else
