@@ -36,8 +36,7 @@ This file shows: agent health, email queue stats, pending approvals, repo status
   favorite_logistics / FLAIR — Mo/Irshad | repo key: favorite-flow
     path: /Users/henryburton/.openclaw/workspace-anthropic/clients/favorite-flow-9637aff2
 
-  race_technik / Chrome Auto Care — Farhaan | repo key: chrome-auto-care
-    path: /Users/henryburton/.openclaw/workspace-anthropic/clients/chrome-auto-care
+  race_technik / Chrome Auto Care — Farhaan | Race OS (Mac Mini) — use scripts/rt-task.sh to queue tasks
 
   rt-metal / Luxe Living     — low priority | repo key: metal-solutions
     path: /Users/henryburton/.openclaw/workspace-anthropic/clients/metal-solutions-elegance-site
@@ -47,7 +46,8 @@ This file shows: agent health, email queue stats, pending approvals, repo status
   When Josh mentions work to do on a client repo, create a task with metadata.repo set.
   The autonomous task worker picks it up, pulls the latest code, implements, commits and pushes.
 
-  Trigger words: "in qms-guard", "for Race Technik", "on the Favlog app", "chrome auto care", etc.
+  Trigger words: "in qms-guard", "on the Favlog app", etc.
+  For Race Technik tasks: use scripts/rt-task.sh (routes to Race OS task worker, not Amalfi worker).
 
   Task creation — source secrets then POST to tasks table:
 
@@ -66,7 +66,7 @@ This file shows: agent health, email queue stats, pending approvals, repo status
         "metadata": {"repo": "<repo-key>"}
       }'
 
-  Repo keys: qms-guard | chrome-auto-care | favorite-flow | metal-solutions
+  Repo keys: qms-guard | favorite-flow | metal-solutions
 
   Each repo has a CONTEXT.md at its root with client background, key contacts, tech notes and current focus.
   Always read it before working on or queuing tasks for a client repo:
@@ -181,7 +181,7 @@ This file shows: agent health, email queue stats, pending approvals, repo status
   TONE:
     - Check the relationship before writing — is this a client, a colleague, an external contact?
     - Colleagues (Salah, team members): casual, direct, no formal opener
-    - Clients (Riaan, Farhaan, Mo): professional but warm, Sophia voice
+    - Clients (Riaan, Mo): professional but warm, Sophia voice
     - New contacts: professional, Sophia intro if first contact
 
 ━━━ KNOWN CONTACTS ━━━

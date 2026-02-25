@@ -11,7 +11,6 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 unset CLAUDECODE
 
 REPOS=(
-  "chrome-auto-care:Race Technik (Detailing Platform)"
   "qms-guard:Ascend LC (QMS Guard)"
   "favorite-flow-9637aff2:Favorite Logistics (FLAIR)"
 )

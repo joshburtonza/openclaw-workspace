@@ -9,9 +9,8 @@ DAILY HEARTBEAT - claude-haiku-4-5
    Flag any older than 2 hours.
 
 3. CHECK CLIENT REPOS (last 6 hours):
-   cd /Users/henryburton/.openclaw/workspace-anthropic/chrome-auto-care && git log --oneline --since='6 hours ago'
-   cd /Users/henryburton/.openclaw/workspace-anthropic/qms-guard && git log --oneline --since='6 hours ago'
-   cd /Users/henryburton/.openclaw/workspace-anthropic/favorite-flow-9637aff2 && git log --oneline --since='6 hours ago'
+   cd /Users/henryburton/.openclaw/workspace-anthropic/clients/qms-guard && git log --oneline --since='6 hours ago'
+   cd /Users/henryburton/.openclaw/workspace-anthropic/clients/favorite-flow-9637aff2 && git log --oneline --since='6 hours ago'
 
 4. GENERATE STATUS SUMMARY:
    claude -p --model claude-haiku-4-5 "Generate a concise system heartbeat report.

@@ -73,7 +73,6 @@ REPOS_JSON=$(cat <<EOF
   $(repo_tick "workspace" "$ROOT"),
   $(repo_tick "mission-control-hub" "$ROOT/mission-control-hub"),
   $(repo_tick "qms-guard" "$ROOT/qms-guard"),
-  $(repo_tick "chrome-auto-care" "$ROOT/chrome-auto-care"),
   $(repo_tick "favorite-flow" "$ROOT/favorite-flow-9637aff2")
 ]
 EOF

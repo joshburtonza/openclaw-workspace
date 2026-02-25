@@ -173,9 +173,6 @@ for email in emails:
         'ascend': 'qms-guard',
         'qms': 'qms-guard',
         'riaan': 'qms-guard',
-        'farhaan': 'chrome-auto-care',
-        'race technik': 'chrome-auto-care',
-        'chrome': 'chrome-auto-care',
         'favlog': 'favorite-flow',
         'favorite': 'favorite-flow',
         'flair': 'favorite-flow',
@@ -183,7 +180,6 @@ for email in emails:
     }
     CLIENT_CONTEXT_PATHS = {
         'qms-guard':        f"{WS}/clients/qms-guard/CONTEXT.md",
-        'chrome-auto-care': f"{WS}/clients/chrome-auto-care/CONTEXT.md",
         'favorite-flow':    f"{WS}/clients/favorite-flow-9637aff2/CONTEXT.md",
     }
     probe = (subject + ' ' + clean_body[:500]).lower()

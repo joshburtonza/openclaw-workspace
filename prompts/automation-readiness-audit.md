@@ -187,5 +187,5 @@ This report is the basis for any subsequent automation proposal. Do not begin bu
 
 ---
 
-*Template last updated: 2026-01-27 — sourced from Race Technik discovery session (Farhaan)*
+*Template last updated: 2026-01-27*
 *Amalfi AI internal use only*

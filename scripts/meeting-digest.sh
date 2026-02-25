@@ -67,9 +67,6 @@ CLIENT_KEYWORDS = {
     'ascend':          'ascend_lc',
     'qms':             'ascend_lc',
     'riaan':           'ascend_lc',
-    'farhaan':         'race_technik',
-    'race technik':    'race_technik',
-    'chrome':          'race_technik',
     'favlog':          'favorite_logistics',
     'favorite':        'favorite_logistics',
     'flair':           'favorite_logistics',
@@ -78,25 +75,21 @@ CLIENT_KEYWORDS = {
 
 CLIENT_EMAILS = {
     'ascend_lc':           'riaan@ascendlc.co.za',
-    'race_technik':        'racetechnik010@gmail.com',
     'favorite_logistics':  'rapizo92@gmail.com',
 }
 
 CLIENT_NAMES = {
     'ascend_lc':           'Ascend LC',
-    'race_technik':        'Race Technik',
     'favorite_logistics':  'Favorite Logistics',
 }
 
 CLIENT_JOURNAL_SECTIONS = {
     'ascend_lc':           'QMS-GUARD',
-    'race_technik':        'CHROME-AUTO-CARE',
     'favorite_logistics':  'FAVORITE-FLOW',
 }
 
 CLIENT_CONTEXT_PATHS = {
     'ascend_lc':           f"{WS}/clients/qms-guard/CONTEXT.md",
-    'race_technik':        f"{WS}/clients/chrome-auto-care/CONTEXT.md",
     'favorite_logistics':  f"{WS}/clients/favorite-flow-9637aff2/CONTEXT.md",
 }
 

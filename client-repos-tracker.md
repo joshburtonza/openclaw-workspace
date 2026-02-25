@@ -6,20 +6,6 @@ Every Tuesday morning (before 10am), Sophia reads these repos to understand what
 
 ---
 
-## RACE TECHNIK (chrome-auto-care)
-**Repo**: https://github.com/joshburtonza/chrome-auto-care.git  
-**Local**: `/Users/henryburton/.openclaw/workspace-anthropic/chrome-auto-care`  
-**Project**: Race Technik Platform (automotive detailing, booking, job tracking, payments)
-
-### Last Sync: [TO BE UPDATED WEEKLY]
-- Date:
-- Commits since last week:
-- Key features added:
-- Bugs fixed:
-- Sophia context update:
-
----
-
 ## ASCEND LC (qms-guard)
 **Repo**: https://github.com/joshburtonza/qms-guard.git  
 **Local**: `/Users/henryburton/.openclaw/workspace-anthropic/qms-guard`  
@@ -52,7 +38,7 @@ Every Tuesday morning (before 10am), Sophia reads these repos to understand what
 ## HOW THIS WORKS
 
 Every Tuesday morning before emails:
-1. Pull latest from all three repos
+1. Pull latest from all repos
 2. Compare commits since last sync
 3. Note what features/fixes/changes shipped
 4. Update this file with summary

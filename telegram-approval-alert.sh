@@ -19,7 +19,6 @@ CHAT_ID="1140320036"
 case "$CLIENT" in
   ascend_lc) CLIENT_LABEL="Ascend LC" ;;
   favorite_logistics) CLIENT_LABEL="Favorite Logistics" ;;
-  race_technik) CLIENT_LABEL="Race Technik" ;;
   *) CLIENT_LABEL="$CLIENT" ;;
 esac
 

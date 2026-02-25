@@ -133,7 +133,7 @@ gamma_pdf() {
 }
 
 insert_draft() {
-  local client_key="$1"     # ascend_lc | race_technik | favorite_logistics
+  local client_key="$1"     # ascend_lc | favorite_logistics
   local to_email="$2"
   local subject="$3"
   local body="$4"
@@ -179,11 +179,7 @@ make_report_for_client() {
   md_file="$OUT_DIR/${client_key}.md"
   pdf_file="$OUT_DIR/${client_key}.pdf"
 
-  # Race Technik gets a 6-stage Automation Pipeline Status section pulled from repo activity
   local pipeline_section=""
-  if [[ "$client_key" == "race_technik" ]]; then
-    pipeline_section="$(get_automation_pipeline_status "$repo_dir")"
-  fi
 
   make_md "$title" "$shipped" "$next" "$risks" "$decisions" "$scope_deferred" "$pipeline_section" > "$md_file"
 
@@ -215,7 +211,6 @@ make_report_for_client() {
 # One PDF per client, no bleed
 # relationship_type: retainer | bd_partner | prospect (matches data/client-projects.json)
 make_report_for_client "ascend_lc"          "Ascend LC (QMS Guard)"        "$ROOT/qms-guard"              "riaan@ascendlc.co.za"        "bd_partner"
-make_report_for_client "race_technik"       "Race Technik"                  "$ROOT/chrome-auto-care"       "racetechnik010@gmail.com"    "retainer"
 make_report_for_client "favorite_logistics" "Favorite Logistics (FLAIR)"   "$ROOT/favorite-flow-9637aff2" "rapizo92@gmail.com"          "retainer"
 
 echo "All weekly reports generated in: $OUT_DIR" >&2

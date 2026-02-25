@@ -33,7 +33,6 @@ if [[ "${1:-}" == "fyi" ]]; then
   case "$FYI_CLIENT" in
     ascend_lc) FYI_CLIENT_LABEL="Ascend LC" ;;
     favorite_logistics) FYI_CLIENT_LABEL="Favorite Logistics" ;;
-    race_technik) FYI_CLIENT_LABEL="Race Technik" ;;
     *) FYI_CLIENT_LABEL="$FYI_CLIENT" ;;
   esac
 
@@ -122,7 +121,6 @@ ANON_KEY="${SUPABASE_ANON_KEY:-}"
 case "$CLIENT" in
   ascend_lc) CLIENT_LABEL="Ascend LC" ;;
   favorite_logistics) CLIENT_LABEL="Favorite Logistics" ;;
-  race_technik) CLIENT_LABEL="Race Technik" ;;
   *) CLIENT_LABEL="$CLIENT" ;;
 esac
 

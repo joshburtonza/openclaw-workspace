@@ -4,7 +4,7 @@
 # Pulls: email trail (inbound + outbound), GitHub commits, meeting notes, client notes.
 #
 # Usage: bash sophia-context.sh <client_slug>
-#   client_slug: ascend_lc | race_technik | favorite_logistics
+#   client_slug: ascend_lc | favorite_logistics
 #
 # Output: formatted plain-text context block, ready to inject into a prompt.
 
@@ -37,12 +37,6 @@ mapping = {
         'journal_section': 'QMS-GUARD',
         'github_owner': 'joshburtonza',
         'github_repo': 'qms-guard',
-    },
-    'race_technik': {
-        'name': 'Race Technik',
-        'journal_section': 'CHROME-AUTO-CARE',
-        'github_owner': 'joshburtonza',
-        'github_repo': 'chrome-auto-care',
     },
     'favorite_logistics': {
         'name': 'Favlog / FLAIR',

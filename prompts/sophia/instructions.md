@@ -152,7 +152,6 @@ Env secrets:      .env.scheduler
 
 **Clients:**
 - Riaan Kotze, André — Ascend LC (QMS Guard platform, ISO/compliance)
-- Farhaan Surtie, Yaseen — Race Technik (Chrome Auto Care, auto booking + Yoco)
 - Mo, Irshad — Favlog (FLAIR ERP, supply chain)
 
 **External contacts:**

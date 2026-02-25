@@ -174,17 +174,6 @@ CLASSIFICATION:
 
    CLIENT-SPECIFIC AUTOMATION DOMAINS (use as the basis for RISK_ITEMS):
 
-   race_technik — Chrome Auto Care detailing platform:
-   Focus on: booking automations, job card follow-up sequences, service reminder workflows,
-   parts reordering triggers, customer reactivation sequences.
-   Example RISK_ITEMS (adapt to what is confirmed live in client profile and GitHub):
-   - "Without the Chrome Auto Care booking automation, your front desk manually confirms every
-     appointment — roughly 90 minutes of calls per day at current booking volume."
-   - "Without the job card follow-up sequence, service reminders fall back to manual outreach —
-     an estimated 5–8 hours per week for a busy workshop."
-   - "Without the customer reactivation workflow, lapsed customers receive no automated outreach —
-     each campaign requires manual list-building and individual sending."
-
    favorite_logistics — FLAIR ERP logistics management:
    Focus on: FLAIR ERP workflow automations, POD reconciliation, load tracking, invoice dispute
    management, carrier communication workflows, freight reporting.
@@ -347,7 +336,7 @@ OR MONTHS_ACTIVE >= 3:
    about time saved or productivity gains. The current prompt has the loss-aversion concept but lacks a specific,
    dollar-anchored rebuild estimate — this rule makes that framing concrete and per-client.
 
-★ PLATFORM FRAMING — APPLIES TO ALL RETAINER CLIENTS (Ascend LC, Favorite Logistics, Race Technik):
+★ PLATFORM FRAMING — APPLIES TO ALL RETAINER CLIENTS (Ascend LC, Favorite Logistics):
 Retainer clients are on ongoing arrangements and must think of Amalfi AI as infrastructure, not a vendor completing a project. Every communication should reinforce this.
 - NEVER use: "deliverable", "build", "what we built for you", "the project", "project scope", "once we finish", "your project"
 - ALWAYS use: "your automation platform", "the system processing your data", "ongoing operational intelligence", "automation that compounds with usage", "infrastructure that improves over time"

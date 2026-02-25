@@ -47,7 +47,7 @@ done | sort)
 
 # ── Repo changes today ────────────────────────────────────────────────────────
 REPO_LOG=""
-for ENTRY in "chrome-auto-care:Race Technik" "qms-guard:Ascend LC" "favorite-flow-9637aff2:Favorite Logistics"; do
+for ENTRY in "qms-guard:Ascend LC" "favorite-flow-9637aff2:Favorite Logistics"; do
   DIR="${ENTRY%%:*}"
   NAME="${ENTRY#*:}"
   COMMITS=$(git -C "$WORKSPACE/$DIR" log --oneline --since="24 hours ago" 2>/dev/null | head -5)

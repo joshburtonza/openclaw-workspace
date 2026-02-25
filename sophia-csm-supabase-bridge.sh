@@ -22,9 +22,6 @@ case "$FROM_EMAIL" in
   rapizo92@gmail.com)
     CLIENT_CODE="favorite_logistics"
     ;;
-  racetechnik010@gmail.com)
-    CLIENT_CODE="race_technik"
-    ;;
   *)
     CLIENT_CODE="unknown"
     ;;

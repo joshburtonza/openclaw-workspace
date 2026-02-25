@@ -125,7 +125,6 @@ print(f"     {total_leads} leads, {outreached} contacted, {replied} replied ({re
 # ── 4. REPO COMMIT VELOCITY ──────────────────────────────────────────────────
 print("  [4] Calculating repo commit velocity...")
 repos = [
-    ("chrome-auto-care",       "Race Technik",       "race_technik"),
     ("qms-guard",              "Ascend LC",           "ascend_lc"),
     ("favorite-flow-9637aff2", "Favorite Logistics",  "favorite_logistics"),
 ]

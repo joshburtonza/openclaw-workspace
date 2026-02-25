@@ -6,7 +6,7 @@
 # when explaining progress to non-technical clients.
 #
 # Usage: bash sophia-github-context.sh [CLIENT_SLUG]
-#   CLIENT_SLUG: ascend_lc | favorite_logistics | race_technik
+#   CLIENT_SLUG: ascend_lc | favorite_logistics
 #   If omitted: prints context for ALL clients.
 #
 # Output: plain text block per client with recent commits
@@ -54,7 +54,6 @@ REPO_FALLBACK = {
         "repos": [{"owner": "joshburtonza", "name": "qms-guard"}],
     },
     "favorite_logistics": {"name": "Favorite Logistics", "repos": []},
-    "race_technik": {"name": "Race Technik", "repos": []},
 }
 
 try:

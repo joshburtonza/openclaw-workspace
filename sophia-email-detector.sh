@@ -74,7 +74,6 @@ STATIC_CLIENT_MAP = {
     "riaan@ascendlc.co.za":     "ascend_lc",
     "andre@ascendlc.co.za":     "ascend_lc",
     "rapizo92@gmail.com":        "favorite_logistics",
-    "racetechnik010@gmail.com": "race_technik",
     # Internal test account — maps to ascend_lc for realistic AUTO-tier testing
     "alex@amalfiai.com":        "ascend_lc",
 }

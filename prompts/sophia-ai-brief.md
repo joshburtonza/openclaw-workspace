@@ -11,8 +11,7 @@ Topics to cover:
 2. Practical automation tools relevant to client businesses: Zapier, Make, n8n, workflow automation
 3. AI in document processing / invoice automation / logistics (relevant to Favorite Logistics / FLAIR)
 4. Quality management / ISO / compliance tech developments (relevant to Ascend LC / QMS Guard)
-5. Customer-facing AI tools: chatbots, scheduling, reviews management (relevant to Race Technik)
-6. South African tech/business news if relevant
+5. South African tech/business news if relevant
 7. Any big AI safety or policy news Josh should be aware of
 
 ━━━ STEP 2 — WRITE THE BRIEFING ━━━
