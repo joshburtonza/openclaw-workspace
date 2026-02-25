@@ -263,8 +263,10 @@ if [[ -n "$RESPONSE" ]]; then
   # ── Audio reply (voice note input → MiniMax TTS voice note output) ──────────
   if [[ "$REPLY_MODE" == "audio" ]]; then
     # Strip markdown so it doesn't get spoken as symbols
+    # (use temp file — heredoc inside $() can't use || fallback in bash)
     export _TTS_RESPONSE="$RESPONSE"
-    CLEAN_TEXT=$(python3 - <<'PYSTRIP' 2>/dev/null
+    _STRIP_TMP=$(mktemp /tmp/tts-strip-XXXXXX)
+    python3 - > "$_STRIP_TMP" 2>/dev/null <<'PYSTRIP'
 import re, os
 text = os.environ.get('_TTS_RESPONSE', '')
 text = re.sub(r'\*\*(.+?)\*\*', r'\1', text, flags=re.DOTALL)
@@ -278,7 +280,8 @@ text = re.sub(r'<[^>]+>', '', text)
 text = re.sub(r'\n{3,}', '\n\n', text)
 print(text.strip()[:4500])
 PYSTRIP
-    || true)
+    CLEAN_TEXT=$(cat "$_STRIP_TMP" 2>/dev/null || true)
+    rm -f "$_STRIP_TMP"
 
     AUDIO_OUT="/tmp/tg-voice-${CHAT_ID}-$(date +%s).opus"
     TTS_OK=0
