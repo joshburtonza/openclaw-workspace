@@ -104,10 +104,6 @@ emails = json.loads(EMAILS_JSON) if EMAILS_JSON.strip().startswith('[') else []
 with open(SEEN_FILE) as f:
     seen = set(l.strip() for l in f if l.strip())
 
-# Track meeting names processed this run to avoid duplicate debriefs
-# (same meeting from both Read AI + Gemini)
-seen_meeting_names = set()
-
 processed = 0
 
 def tg_send(text):
@@ -147,6 +143,34 @@ def openai_complete(system_prompt, user_content, model='gpt-4o'):
         print(f"  [warn] OpenAI call failed: {e}")
         return ''
 
+def extract_meeting_name(subject):
+    gemini_match = re.match(r'^Notes:\s*"(.+?)"', subject)
+    readai_match = re.match(r'^[^\w]*(.+?)\s+on\s+\w+\s+\d+', subject)
+    if gemini_match:
+        return gemini_match.group(1).strip()
+    elif readai_match:
+        return readai_match.group(1).strip()
+    return subject
+
+def clean_email_body(body):
+    text = re.sub(r'<[^>]+>', ' ', body)
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r'[\u200b\u00ad\ufeff]', '', text)
+    text = re.sub(r'\s{3,}', '\n\n', text).strip()
+    return text
+
+def fetch_body(email_id, fallback):
+    try:
+        result = subprocess.run(
+            ['gog', 'gmail', 'read', email_id, '--account', ACCOUNT, '--results-only'],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.stdout.strip():
+            return result.stdout.strip()
+    except Exception as e:
+        print(f"  [warn] Could not fetch body for {email_id}: {e}")
+    return fallback
+
 SYSTEM_PROMPT = """You are a sharp meeting intelligence analyst for Josh Burton, founder of Amalfi AI — an AI agency building AI operating systems for South African businesses.
 
 Your job: give Josh a fast, honest, useful debrief he can act on immediately. He reads this on his phone.
@@ -179,79 +203,86 @@ FORMAT — use exactly this structure, plain Markdown, no extra headers:
 [One sentence. Honest read on what this meeting means for the business]
 
 RULES:
-- If the transcript was truncated or cut off, say so at the very top before anything else: "⚠️ Transcript was cut off — debrief based on partial notes"
+- If the notes were truncated or cut off, say so at the very top: "⚠️ Notes were partial — debrief based on available content"
+- If you received notes from multiple sources (Read AI + Gemini), synthesise them — don't repeat, combine
 - If names/companies are unknown, say so rather than guessing
 - Flag scope creep, compliance risk, or unclear priorities
 - No padding, no "great session" filler, no corporate speak"""
+
+CLIENT_KEYWORDS = {
+    'ascend': 'qms-guard', 'qms': 'qms-guard', 'riaan': 'qms-guard',
+    'favlog': 'favorite-flow', 'favorite': 'favorite-flow',
+    'flair': 'favorite-flow', 'irshad': 'favorite-flow',
+    'race technik': 'chrome-auto-care', 'farhaan': 'chrome-auto-care',
+}
+CLIENT_CONTEXT_PATHS = {
+    'qms-guard':        f"{WS}/clients/qms-guard/CONTEXT.md",
+    'favorite-flow':    f"{WS}/clients/favorite-flow-9637aff2/CONTEXT.md",
+    'chrome-auto-care': f"{WS}/clients/chrome-auto-care/CONTEXT.md",
+}
+
+# ── Pass 1: group emails by normalised meeting name ────────────────────────
+# Each group collects all email IDs + transcript chunks from every source
+meetings = {}  # name_key -> {name, subjects, email_ids, senders, chunks}
 
 for email in emails:
     email_id = email.get('id') or email.get('messageId', '')
     if not email_id or email_id in seen:
         continue
 
-    # Filter: skip weekly digests and marketing
     subject = email.get('subject', '') or ''
     if any(skip in subject for skip in ['Weekly Kickoff', 'Weekly Summary', "won't generate", 'next meeting']):
         seen.add(email_id)
         continue
 
     sender = email.get('from', '')
-    body   = email.get('body') or email.get('snippet', '')
-
-    # Fetch full email content
-    try:
-        result = subprocess.run(
-            ['gog', 'gmail', 'read', email_id, '--account', ACCOUNT, '--results-only'],
-            capture_output=True, text=True, timeout=30
-        )
-        if result.stdout.strip():
-            body = result.stdout.strip()
-    except Exception as e:
-        print(f"  [warn] Could not fetch full body for {email_id}: {e}")
+    body   = fetch_body(email_id, email.get('body') or email.get('snippet', ''))
 
     if not body or len(body.strip()) < 100:
         print(f"  [skip] {subject} — body too short")
         seen.add(email_id)
         continue
 
-    # Clean HTML/tracking noise
-    clean_body = re.sub(r'<[^>]+>', ' ', body)
-    clean_body = re.sub(r'https?://\S+', '', clean_body)
-    clean_body = re.sub(r'[\u200b\u00ad\ufeff]', '', clean_body)
-    clean_body = re.sub(r'\s{3,}', '\n\n', clean_body).strip()
-
-    # Extract meeting name from subject
-    meeting_name = subject
-    gemini_match = re.match(r'^Notes:\s*"(.+?)"', subject)
-    readai_match = re.match(r'^[^\w]*(.+?)\s+on\s+\w+\s+\d+', subject)
-    if gemini_match:
-        meeting_name = gemini_match.group(1).strip()
-    elif readai_match:
-        meeting_name = readai_match.group(1).strip()
-
-    # Deduplicate by meeting name — skip if already sent a debrief for this meeting today
+    clean = clean_email_body(body)
+    meeting_name = extract_meeting_name(subject)
     name_key = re.sub(r'\s+', ' ', meeting_name.lower().strip())
-    if name_key in seen_meeting_names:
-        print(f"  [skip] Duplicate meeting debrief suppressed: {meeting_name}")
-        seen.add(email_id)
-        continue
-    seen_meeting_names.add(name_key)
 
-    print(f"  Processing: {meeting_name}")
+    if name_key not in meetings:
+        meetings[name_key] = {
+            'name':      meeting_name,
+            'subjects':  [],
+            'email_ids': [],
+            'senders':   [],
+            'chunks':    [],
+        }
 
-    # Detect client and load context
-    CLIENT_KEYWORDS = {
-        'ascend': 'qms-guard', 'qms': 'qms-guard', 'riaan': 'qms-guard',
-        'favlog': 'favorite-flow', 'favorite': 'favorite-flow',
-        'flair': 'favorite-flow', 'irshad': 'favorite-flow',
-        'race technik': 'chrome-auto-care', 'farhaan': 'chrome-auto-care',
-    }
-    CLIENT_CONTEXT_PATHS = {
-        'qms-guard':        f"{WS}/clients/qms-guard/CONTEXT.md",
-        'favorite-flow':    f"{WS}/clients/favorite-flow-9637aff2/CONTEXT.md",
-        'chrome-auto-care': f"{WS}/clients/chrome-auto-care/CONTEXT.md",
-    }
-    probe = (subject + ' ' + clean_body[:500]).lower()
+    meetings[name_key]['subjects'].append(subject)
+    meetings[name_key]['email_ids'].append(email_id)
+    meetings[name_key]['senders'].append(sender)
+    meetings[name_key]['chunks'].append(clean)
+
+# ── Pass 2: analyse each unique meeting with merged transcript ─────────────
+for name_key, mtg in meetings.items():
+    meeting_name = mtg['name']
+    email_ids    = mtg['email_ids']
+    subjects     = mtg['subjects']
+    chunks       = mtg['chunks']
+    sources      = mtg['senders']
+
+    print(f"  Processing: {meeting_name} ({len(chunks)} source(s))")
+
+    # Merge transcripts — label each source if more than one
+    if len(chunks) == 1:
+        merged_transcript = chunks[0][:12000]
+    else:
+        parts = []
+        source_labels = ['Read AI' if 'read.ai' in s else 'Gemini Notes' if 'google' in s else s for s in sources]
+        for label, chunk in zip(source_labels, chunks):
+            parts.append(f"--- {label} ---\n{chunk[:6000]}")
+        merged_transcript = '\n\n'.join(parts)
+
+    # Detect client context from combined probe
+    probe = (' '.join(subjects) + ' ' + merged_transcript[:500]).lower()
     client_key = next((v for k, v in CLIENT_KEYWORDS.items() if k in probe), None)
     client_context_section = ''
     if client_key:
@@ -260,48 +291,46 @@ for email in emails:
             with open(ctx_path) as cf:
                 client_context_section = f"\n## Client Context\n{cf.read()}\n"
 
-    # Run OpenAI analysis
-    user_content = f"""## Meeting subject
-{subject}
+    user_content = f"""## Meeting
+{subjects[0]}
 {client_context_section}
-## Notes / Transcript
-{clean_body[:12000]}"""
+## Notes ({len(chunks)} source(s) combined)
+{merged_transcript}"""
 
     analysis = openai_complete(SYSTEM_PROMPT, user_content, model='gpt-4o')
     if not analysis:
-        analysis = f'_(Analysis unavailable — OpenAI call failed)_'
+        analysis = '_(Analysis unavailable — OpenAI call failed)_'
 
-    # Send Telegram debrief
-    # Split if over 4096 chars
+    # Send — split if over Telegram limit
     if len(analysis) <= 4000:
         tg_send(analysis)
     else:
-        chunks = []
+        chunks_out = []
         current = ''
         for para in analysis.split('\n\n'):
             if len(current) + len(para) + 2 > 3800:
                 if current:
-                    chunks.append(current.strip())
+                    chunks_out.append(current.strip())
                 current = para
             else:
                 current += ('\n\n' if current else '') + para
         if current:
-            chunks.append(current.strip())
-        for chunk in chunks:
+            chunks_out.append(current.strip())
+        for chunk in chunks_out:
             tg_send(chunk)
 
     print(f"  [ok] Telegram debrief sent: {meeting_name}")
 
-    # Save to research_sources
+    # Save merged notes to research_sources (once per meeting)
     payload = {
         'title':       f"Meeting: {meeting_name}",
-        'raw_content': f"Subject: {subject}\nFrom: {sender}\n\n{clean_body[:10000]}",
+        'raw_content': f"Subject: {subjects[0]}\nSources: {', '.join(sources)}\n\n{merged_transcript[:10000]}",
         'status':      'pending',
         'metadata':    {
             'type':        'meeting_notes',
-            'email_id':    email_id,
-            'from':        sender,
-            'subject':     subject,
+            'email_ids':   email_ids,
+            'sources':     sources,
+            'subject':     subjects[0],
             'ingested_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         },
     }
@@ -317,14 +346,15 @@ for email in emails:
     except Exception as e:
         print(f"  [warn] research_sources insert failed: {e}")
 
-    # Mark email as read
-    subprocess.run(
-        ['gog', 'gmail', 'thread', 'modify', email_id,
-         '--account', ACCOUNT, '--remove=UNREAD', '--force'],
-        capture_output=True, timeout=15
-    )
+    # Mark all source emails as read
+    for eid in email_ids:
+        subprocess.run(
+            ['gog', 'gmail', 'thread', 'modify', eid,
+             '--account', ACCOUNT, '--remove=UNREAD', '--force'],
+            capture_output=True, timeout=15
+        )
+        seen.add(eid)
 
-    seen.add(email_id)
     processed += 1
 
 # Persist seen IDs
