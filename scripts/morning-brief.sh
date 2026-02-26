@@ -213,7 +213,7 @@ Reply with ONLY the list. No preamble, no sign-off.
 AINEWSPROMPT
 fi
 
-AI_NEWS_DIGEST=$(claude --print --model claude-haiku-4-5-20251001 < "$AI_NEWS_PROMPT_TMP" 2>/dev/null || echo "")
+AI_NEWS_DIGEST=$(bash "$WORKSPACE/scripts/lib/openai-complete.sh" --model gpt-4o-mini < "$AI_NEWS_PROMPT_TMP" 2>/dev/null || echo "")
 rm -f "$AI_NEWS_PROMPT_TMP"
 [[ -z "$AI_NEWS_DIGEST" ]] && AI_NEWS_DIGEST="AI news digest unavailable."
 echo "  AI news digest generated"
@@ -335,7 +335,7 @@ Reply with ONLY the list. No preamble, no sign-off.
 SAINTELPRMT
 fi
 
-SA_INTEL_TEXT=$(claude --print --model claude-haiku-4-5-20251001 < "$SA_INTEL_PROMPT_TMP" 2>/dev/null || echo "")
+SA_INTEL_TEXT=$(bash "$WORKSPACE/scripts/lib/openai-complete.sh" --model gpt-4o-mini < "$SA_INTEL_PROMPT_TMP" 2>/dev/null || echo "")
 rm -f "$SA_INTEL_PROMPT_TMP"
 [[ -z "$SA_INTEL_TEXT" ]] && SA_INTEL_TEXT="SA market intelligence unavailable."
 echo "  SA market intelligence generated"
@@ -426,7 +426,7 @@ Reply with ONLY the list. No preamble, no sign-off.
 COMPLIANCEPROMPT
 fi
 
-COMPLIANCE_INTEL_TEXT=$(claude --print --model claude-haiku-4-5-20251001 < "$COMPLIANCE_PROMPT_TMP" 2>/dev/null || echo "")
+COMPLIANCE_INTEL_TEXT=$(bash "$WORKSPACE/scripts/lib/openai-complete.sh" --model gpt-4o-mini < "$COMPLIANCE_PROMPT_TMP" 2>/dev/null || echo "")
 rm -f "$COMPLIANCE_PROMPT_TMP"
 [[ -z "$COMPLIANCE_INTEL_TEXT" ]] && COMPLIANCE_INTEL_TEXT="Compliance vertical intelligence unavailable."
 echo "  Compliance vertical intelligence generated"
@@ -522,7 +522,7 @@ Given this week's operational data, produce a spoken SWOT summary for Josh — o
 IMPORTANT: Generate it now. Do not ask for more data. Reply with ONLY the four sentences.
 SWOTPROMPT
 
-SWOT_TEXT=$(claude --print --model claude-haiku-4-5-20251001 < "$SWOT_PROMPT_TMP" 2>/dev/null || echo "")
+SWOT_TEXT=$(bash "$WORKSPACE/scripts/lib/openai-complete.sh" --model gpt-4o-mini < "$SWOT_PROMPT_TMP" 2>/dev/null || echo "")
 rm -f "$SWOT_PROMPT_TMP"
 [[ -z "$SWOT_TEXT" ]] && SWOT_TEXT="SWOT data unavailable today."
 echo "  SWOT generated"
@@ -590,7 +590,7 @@ Give 2 LinkedIn or short-form video angles for this week — one-line hooks only
 IMPORTANT: Generate them now from your knowledge. Do not ask for more data. Reply with ONLY the 2 hooks, one per line.
 CONTENTPROMPT
 
-CONTENT_IDEAS=$(claude --print --model claude-haiku-4-5-20251001 < "$CONTENT_PROMPT_TMP" 2>/dev/null || echo "")
+CONTENT_IDEAS=$(bash "$WORKSPACE/scripts/lib/openai-complete.sh" --model gpt-4o-mini < "$CONTENT_PROMPT_TMP" 2>/dev/null || echo "")
 rm -f "$CONTENT_PROMPT_TMP"
 [[ -z "$CONTENT_IDEAS" ]] && CONTENT_IDEAS="Content ideas unavailable today."
 echo "  Content ideas generated"
@@ -653,7 +653,7 @@ Give one sentence on the most relevant AI agent or automation development in the
 AIPULSEPROMPT
 fi
 
-AI_PULSE_TEXT=$(claude --print --model claude-haiku-4-5-20251001 < "$AI_PULSE_PROMPT_TMP" 2>/dev/null || echo "")
+AI_PULSE_TEXT=$(bash "$WORKSPACE/scripts/lib/openai-complete.sh" --model gpt-4o-mini < "$AI_PULSE_PROMPT_TMP" 2>/dev/null || echo "")
 rm -f "$AI_PULSE_PROMPT_TMP"
 [[ -z "$AI_PULSE_TEXT" ]] && AI_PULSE_TEXT=""
 echo "  AI Pulse generated"
@@ -693,22 +693,19 @@ ${AI_PULSE_TEXT}
 CONTENT IDEAS FOR THIS WEEK:
 ${CONTENT_IDEAS}
 
-STYLE RULES:
-- Spoken, casual, direct — like a smart colleague doing a full morning rundown
-- Conversational opener — vary it each day ("Morning Josh", "Right, let's go", "So here is the run")
-- Cover ALL sections above — business first, then SWOT summary, then market intel, then content angle
+ADDITIONAL RULES:
 - If demo requests exist, lead with them and name the company — highest priority signal
-- For AI news and SA intel: pick the ONE most relevant item from each, one sentence each
+- For AI news and SA intel: mention ONE item from each, one sentence each, woven naturally into conversation
 - For content ideas: mention ONE angle worth posting this week
-- For SWOT: weave in the key strength and key threat naturally, one sentence each
-- No bullet points, no headings — pure flowing speech
-- End with one clear action item or question for Josh
-- Target 300 to 400 words — this is a full morning briefing, not a quick note
+- For SWOT: weave in the key strength and key threat naturally
 
 Reply with ONLY the brief text. No quotes. No preamble.
 PROMPT
 
-BRIEF_TEXT=$(claude --print --model claude-haiku-4-5-20251001 < "$PROMPT_TMP" 2>/dev/null)
+BRIEF_TEXT=$(bash "$WORKSPACE/scripts/lib/openai-complete.sh" \
+  --model gpt-4o \
+  --system-file "$WORKSPACE/prompts/morning-brief-system.md" \
+  < "$PROMPT_TMP" 2>/dev/null)
 rm -f "$PROMPT_TMP"
 
 if [[ -z "$BRIEF_TEXT" ]]; then

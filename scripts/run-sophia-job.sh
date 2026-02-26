@@ -36,35 +36,26 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting $JOB_NAME" >> "$LOG"
 COMBINED=$(mktemp /tmp/sophia-combined-XXXXXX)
 trap 'rm -f "$COMBINED"' EXIT
 
+# System prompt: Sophia identity + memory
+SYSTEM_CONTENT=""
+if [[ -f "$SOUL" ]];    then SYSTEM_CONTENT="${SYSTEM_CONTENT}$(cat "$SOUL")\n\n---\n\n"; fi
+if [[ -f "$INSTRUCT" ]]; then SYSTEM_CONTENT="${SYSTEM_CONTENT}$(cat "$INSTRUCT")\n\n---\n\n"; fi
+if [[ -f "$MEMORY" ]]; then
+  SYSTEM_CONTENT="${SYSTEM_CONTENT}## YOUR CURRENT MEMORY\n\n$(cat "$MEMORY")\n\n---\n\n"
+fi
+
+# User message: date context + job instructions
 {
-  # Identity layer
-  if [[ -f "$SOUL" ]];    then cat "$SOUL";    echo -e "\n\n---\n"; fi
-  if [[ -f "$INSTRUCT" ]]; then cat "$INSTRUCT"; echo -e "\n\n---\n"; fi
-
-  # Memory layer
-  if [[ -f "$MEMORY" ]]; then
-    echo "## YOUR CURRENT MEMORY"
-    echo ""
-    cat "$MEMORY"
-    echo -e "\n\n---\n"
-  fi
-
-  # Date context
   echo "Today: ${TODAY}"
   echo ""
   echo "---"
   echo ""
-
-  # Job-specific instructions
   cat "$PROMPT_FILE"
 } > "$COMBINED"
 
-unset CLAUDECODE
-
-claude --print \
-  --dangerously-skip-permissions \
-  --model claude-sonnet-4-6 \
-  --add-dir "$WS" \
+bash "$WS/scripts/lib/openai-complete.sh" \
+  --model gpt-4o \
+  --system "$(printf '%b' "$SYSTEM_CONTENT")" \
   < "$COMBINED" \
   >> "$LOG" 2>&1
 

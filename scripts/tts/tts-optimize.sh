@@ -30,14 +30,9 @@ fi
 
 SYSTEM_PROMPT=$(cat "$PROMPT_FILE")
 
-FULL_PROMPT=$(printf '%s\n\n---\n\n%s' "$SYSTEM_PROMPT" "$INPUT_TEXT")
-
-PROMPT_TMP=$(mktemp /tmp/tts-opt-XXXXXX)
-printf '%s' "$FULL_PROMPT" > "$PROMPT_TMP"
-
-unset CLAUDECODE
-RESULT=$(claude --print --model claude-haiku-4-5-20251001 --dangerously-skip-permissions < "$PROMPT_TMP" 2>/dev/null)
-rm -f "$PROMPT_TMP"
+RESULT=$(echo "$INPUT_TEXT" | bash "$WS/scripts/lib/openai-complete.sh" \
+  --model gpt-4o-mini \
+  --system "$SYSTEM_PROMPT" 2>/dev/null)
 
 if [[ -n "$RESULT" ]]; then
   echo "$RESULT"
