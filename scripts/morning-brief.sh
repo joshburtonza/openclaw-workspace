@@ -722,11 +722,15 @@ echo "  Brief generated ($(echo "$BRIEF_TEXT" | wc -w | tr -d ' ') words)"
 mkdir -p "$(dirname "$AUDIO_OUT")"
 
 TTS_OK=false
-if echo "$BRIEF_TEXT" | bash "$WORKSPACE/scripts/tts/minimax-tts-to-opus.sh" --out "$AUDIO_OUT" 2>/dev/null; then
+# Try CSM first (Sesame CSM-1B via HF Space — best quality), fall back to MiniMax
+if python3 "$WORKSPACE/scripts/tts/csm-tts.py" "$BRIEF_TEXT" "$AUDIO_OUT" "read_speech" 2>/dev/null; then
   TTS_OK=true
-  echo "  TTS: audio generated"
+  echo "  TTS: CSM audio generated"
+elif echo "$BRIEF_TEXT" | bash "$WORKSPACE/scripts/tts/minimax-tts-to-opus.sh" --out "$AUDIO_OUT" 2>/dev/null; then
+  TTS_OK=true
+  echo "  TTS: MiniMax fallback audio generated"
 else
-  echo "  TTS: failed, will send text fallback" >&2
+  echo "  TTS: all TTS failed, will send text fallback" >&2
 fi
 
 # ── Send voice note via Telegram ──────────────────────────────────────────────
