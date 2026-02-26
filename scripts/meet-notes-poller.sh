@@ -25,7 +25,7 @@ BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
 SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 ACCOUNT="josh@amalfiai.com"
-MODEL="claude-sonnet-4-6"
+OPENAI_KEY="${OPENAI_API_KEY:-}"
 
 touch "$SEEN_FILE"
 
@@ -84,10 +84,10 @@ fi
 
 log "Found $COUNT meeting note email(s). Processing..."
 
-export EMAILS_JSON KEY SUPABASE_URL BOT_TOKEN CHAT_ID SEEN_FILE ACCOUNT MODEL WS
+export EMAILS_JSON KEY SUPABASE_URL BOT_TOKEN CHAT_ID SEEN_FILE ACCOUNT OPENAI_KEY WS
 
 python3 - <<'PY'
-import os, json, subprocess, urllib.request, datetime, re, tempfile
+import os, json, subprocess, urllib.request, urllib.error, datetime, re, tempfile
 
 EMAILS_JSON  = os.environ['EMAILS_JSON']
 KEY          = os.environ['KEY']
@@ -96,7 +96,7 @@ BOT_TOKEN    = os.environ['BOT_TOKEN']
 CHAT_ID      = os.environ['CHAT_ID']
 SEEN_FILE    = os.environ['SEEN_FILE']
 ACCOUNT      = os.environ['ACCOUNT']
-MODEL        = os.environ['MODEL']
+OPENAI_KEY   = os.environ.get('OPENAI_KEY', '')
 WS           = os.environ['WS']
 
 emails = json.loads(EMAILS_JSON) if EMAILS_JSON.strip().startswith('[') else []
@@ -104,12 +104,16 @@ emails = json.loads(EMAILS_JSON) if EMAILS_JSON.strip().startswith('[') else []
 with open(SEEN_FILE) as f:
     seen = set(l.strip() for l in f if l.strip())
 
+# Track meeting names processed this run to avoid duplicate debriefs
+# (same meeting from both Read AI + Gemini)
+seen_meeting_names = set()
+
 processed = 0
 
 def tg_send(text):
     if not BOT_TOKEN or not CHAT_ID:
         return
-    data = json.dumps({'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'HTML'}).encode()
+    data = json.dumps({'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'Markdown'}).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
         data=data, headers={'Content-Type': 'application/json'}, method='POST'
@@ -119,12 +123,73 @@ def tg_send(text):
     except Exception:
         pass
 
+def openai_complete(system_prompt, user_content, model='gpt-4o'):
+    if not OPENAI_KEY:
+        return ''
+    payload = json.dumps({
+        'model': model,
+        'messages': [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user',   'content': user_content},
+        ],
+        'temperature': 0.4,
+    }).encode()
+    req = urllib.request.Request(
+        'https://api.openai.com/v1/chat/completions',
+        data=payload,
+        headers={'Authorization': f'Bearer {OPENAI_KEY}', 'Content-Type': 'application/json'}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read())
+            return data['choices'][0]['message']['content'].strip()
+    except Exception as e:
+        print(f"  [warn] OpenAI call failed: {e}")
+        return ''
+
+SYSTEM_PROMPT = """You are a sharp meeting intelligence analyst for Josh Burton, founder of Amalfi AI — an AI agency building AI operating systems for South African businesses.
+
+Your job: give Josh a fast, honest, useful debrief he can act on immediately. He reads this on his phone.
+
+TONE: Direct and conversational. Like a smart colleague who was in the room. Not a consultant's report.
+
+FORMAT — use exactly this structure, plain Markdown, no extra headers:
+
+📋 *[Meeting name]* — [type: Discovery/Progress/Delivery/Internal]
+*With:* [names + companies]
+*When:* [date/time]
+
+*What happened:*
+[3-5 tight sentences — what was actually discussed, not just topics listed]
+
+*Decisions & agreements:*
+[What was confirmed or moved. "Nothing concrete" if unclear]
+
+*Action items:*
+[🔴 Josh: specific thing]
+[Other person: specific thing]
+
+*Relationship read:*
+[One honest paragraph — where does this relationship stand? Warm/cool/stalling/promising? Trust signals or red flags?]
+
+*Watch out for:*
+[1-3 specific concerns or follow-up items. Real risks, not generic warnings]
+
+*Verdict:*
+[One sentence. Honest read on what this meeting means for the business]
+
+RULES:
+- If the transcript was truncated or cut off, say so at the very top before anything else: "⚠️ Transcript was cut off — debrief based on partial notes"
+- If names/companies are unknown, say so rather than guessing
+- Flag scope creep, compliance risk, or unclear priorities
+- No padding, no "great session" filler, no corporate speak"""
+
 for email in emails:
     email_id = email.get('id') or email.get('messageId', '')
     if not email_id or email_id in seen:
         continue
 
-    # Filter: skip weekly digests and marketing (only process actual meeting reports)
+    # Filter: skip weekly digests and marketing
     subject = email.get('subject', '') or ''
     if any(skip in subject for skip in ['Weekly Kickoff', 'Weekly Summary', "won't generate", 'next meeting']):
         seen.add(email_id)
@@ -145,19 +210,17 @@ for email in emails:
         print(f"  [warn] Could not fetch full body for {email_id}: {e}")
 
     if not body or len(body.strip()) < 100:
-        print(f"  [skip] {subject} — body too short after fetch")
+        print(f"  [skip] {subject} — body too short")
         seen.add(email_id)
         continue
 
     # Clean HTML/tracking noise
     clean_body = re.sub(r'<[^>]+>', ' ', body)
     clean_body = re.sub(r'https?://\S+', '', clean_body)
-    clean_body = re.sub(r'[\u200b\u00ad\ufeff]', '', clean_body)  # zero-width chars
+    clean_body = re.sub(r'[\u200b\u00ad\ufeff]', '', clean_body)
     clean_body = re.sub(r'\s{3,}', '\n\n', clean_body).strip()
 
-    # Extract meeting name from subject:
-    # Read AI:  "🗓 Meeting Name on Date @ Time | Read Meeting Report"
-    # Gemini:   'Notes: "Meeting Name" Date'
+    # Extract meeting name from subject
     meeting_name = subject
     gemini_match = re.match(r'^Notes:\s*"(.+?)"', subject)
     readai_match = re.match(r'^[^\w]*(.+?)\s+on\s+\w+\s+\d+', subject)
@@ -166,21 +229,27 @@ for email in emails:
     elif readai_match:
         meeting_name = readai_match.group(1).strip()
 
+    # Deduplicate by meeting name — skip if already sent a debrief for this meeting today
+    name_key = re.sub(r'\s+', ' ', meeting_name.lower().strip())
+    if name_key in seen_meeting_names:
+        print(f"  [skip] Duplicate meeting debrief suppressed: {meeting_name}")
+        seen.add(email_id)
+        continue
+    seen_meeting_names.add(name_key)
+
     print(f"  Processing: {meeting_name}")
 
-    # ── Detect client and load context ────────────────────────────────────────
+    # Detect client and load context
     CLIENT_KEYWORDS = {
-        'ascend': 'qms-guard',
-        'qms': 'qms-guard',
-        'riaan': 'qms-guard',
-        'favlog': 'favorite-flow',
-        'favorite': 'favorite-flow',
-        'flair': 'favorite-flow',
-        'irshad': 'favorite-flow',
+        'ascend': 'qms-guard', 'qms': 'qms-guard', 'riaan': 'qms-guard',
+        'favlog': 'favorite-flow', 'favorite': 'favorite-flow',
+        'flair': 'favorite-flow', 'irshad': 'favorite-flow',
+        'race technik': 'chrome-auto-care', 'farhaan': 'chrome-auto-care',
     }
     CLIENT_CONTEXT_PATHS = {
         'qms-guard':        f"{WS}/clients/qms-guard/CONTEXT.md",
         'favorite-flow':    f"{WS}/clients/favorite-flow-9637aff2/CONTEXT.md",
+        'chrome-auto-care': f"{WS}/clients/chrome-auto-care/CONTEXT.md",
     }
     probe = (subject + ' ' + clean_body[:500]).lower()
     client_key = next((v for k, v in CLIENT_KEYWORDS.items() if k in probe), None)
@@ -191,78 +260,39 @@ for email in emails:
             with open(ctx_path) as cf:
                 client_context_section = f"\n## Client Context\n{cf.read()}\n"
 
-    # ── Run Claude analysis ────────────────────────────────────────────────────
-    prompt = f"""You are analysing a meeting for Josh Burton, founder of Amalfi AI (an AI agency building AI operating systems for SA businesses).
-{client_context_section}
-## Meeting
+    # Run OpenAI analysis
+    user_content = f"""## Meeting subject
 {subject}
-
+{client_context_section}
 ## Notes / Transcript
-{clean_body[:8000]}
+{clean_body[:12000]}"""
 
-## Your job
-Give Josh a sharp debrief that fits into the ongoing client relationship. Structure:
+    analysis = openai_complete(SYSTEM_PROMPT, user_content, model='gpt-4o')
+    if not analysis:
+        analysis = f'_(Analysis unavailable — OpenAI call failed)_'
 
-**Meeting type:** [Discovery / Progress / Delivery / Relationship / Internal / Other]
-**With:** [names and companies]
-**Date/time:** [from subject]
+    # Send Telegram debrief
+    # Split if over 4096 chars
+    if len(analysis) <= 4000:
+        tg_send(analysis)
+    else:
+        chunks = []
+        current = ''
+        for para in analysis.split('\n\n'):
+            if len(current) + len(para) + 2 > 3800:
+                if current:
+                    chunks.append(current.strip())
+                current = para
+            else:
+                current += ('\n\n' if current else '') + para
+        if current:
+            chunks.append(current.strip())
+        for chunk in chunks:
+            tg_send(chunk)
 
-**What happened:**
-[3-5 bullets — key things discussed]
-
-**Decisions & agreements:**
-[what was confirmed or moved forward. None if nothing concrete]
-
-**Action items:**
-[who needs to do what. Flag Josh's items with 🔴]
-
-**Relationship read:**
-[where is this relationship? progressing/stalling/warm/cool? Trust signals or red flags?]
-
-**Watch out for:**
-[concerns, opportunities, follow-up needed]
-
-**One-line verdict:**
-[honest read on the meeting and what it means]
-
-Keep it tight. Josh reads this on his phone. No padding.
-"""
-
-    tmpfile = tempfile.mktemp(suffix='.txt')
-    with open(tmpfile, 'w') as f:
-        f.write(prompt)
-
-    analysis = ''
-    try:
-        import os as _os
-        env = dict(_os.environ)
-        env['CLAUDECODE'] = ''  # unset trick — actually need to delete it
-        env.pop('CLAUDECODE', None)
-        result = subprocess.run(
-            ['claude', '--print', '--model', MODEL, '--dangerously-skip-permissions'],
-            stdin=open(tmpfile), capture_output=True, text=True, timeout=120, env=env
-        )
-        analysis = result.stdout.strip()
-        if not analysis:
-            analysis = result.stderr.strip() or '(No analysis returned)'
-    except Exception as e:
-        analysis = f'(Analysis failed: {e})'
-    finally:
-        try:
-            import os as _os2
-            _os2.remove(tmpfile)
-        except Exception:
-            pass
-
-    # ── Send Telegram debrief ──────────────────────────────────────────────────
-    header = f"📋 <b>Meeting debrief: {meeting_name}</b>\n\n"
-    # Telegram max 4096 chars — truncate analysis if needed
-    max_body = 4096 - len(header) - 10
-    body_text = analysis[:max_body] if len(analysis) > max_body else analysis
-    tg_send(header + body_text)
     print(f"  [ok] Telegram debrief sent: {meeting_name}")
 
-    # ── Save to research_sources for long-term pipeline ───────────────────────
+    # Save to research_sources
     payload = {
         'title':       f"Meeting: {meeting_name}",
         'raw_content': f"Subject: {subject}\nFrom: {sender}\n\n{clean_body[:10000]}",
@@ -272,7 +302,7 @@ Keep it tight. Josh reads this on his phone. No padding.
             'email_id':    email_id,
             'from':        sender,
             'subject':     subject,
-            'ingested_at': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'ingested_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         },
     }
     req = urllib.request.Request(
@@ -287,7 +317,7 @@ Keep it tight. Josh reads this on his phone. No padding.
     except Exception as e:
         print(f"  [warn] research_sources insert failed: {e}")
 
-    # ── Mark email as read (thread ID = message ID for single-message threads) ─
+    # Mark email as read
     subprocess.run(
         ['gog', 'gmail', 'thread', 'modify', email_id,
          '--account', ACCOUNT, '--remove=UNREAD', '--force'],
