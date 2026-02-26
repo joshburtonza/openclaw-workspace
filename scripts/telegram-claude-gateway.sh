@@ -506,6 +506,48 @@ except: print('  (could not load contacts.json)')
   fi
   exit 0
 fi
+
+# ── /image command ────────────────────────────────────────────────────────────
+# Generate an image via FLUX.1-schnell (HuggingFace Inference API).
+# Usage: /image a futuristic cityscape at sunset
+
+if echo "$USER_MSG" | grep -qi '^\s*/image'; then
+  IMG_PROMPT=$(echo "$USER_MSG" | sed 's|^\s*/image\s*||i')
+
+  if [[ -z "$IMG_PROMPT" ]]; then
+    tg_send "Usage: /image <prompt>"
+    exit 0
+  fi
+
+  tg_send "Generating image..."
+
+  # Show upload_photo action
+  curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendChatAction" \
+    -H "Content-Type: application/json" \
+    -d "{\"chat_id\": \"${CHAT_ID}\", \"action\": \"upload_photo\"}" >/dev/null 2>&1 || true
+
+  IMG_OUT="/tmp/tg-image-${CHAT_ID}-$(date +%s).png"
+  export HUGGINGFACE_API_KEY
+
+  if python3 "$WS/scripts/hf-image-gen.py" "$IMG_PROMPT" "$IMG_OUT" 2>>"$WS/out/gateway-errors.log"; then
+    # Send the image
+    IMG_RESP=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto" \
+      -F "chat_id=${CHAT_ID}" \
+      -F "photo=@${IMG_OUT}" \
+      -F "caption=$(echo "$IMG_PROMPT" | cut -c1-200)" 2>/dev/null || echo "")
+    IMG_OK=$(echo "$IMG_RESP" | python3 -c "import sys,json; print('ok' if json.load(sys.stdin).get('ok') else 'fail')" 2>/dev/null || echo "fail")
+
+    if [[ "$IMG_OK" != "ok" ]]; then
+      tg_send "Image generated but upload failed. Try again."
+    fi
+  else
+    tg_send "Image generation failed. Try a different prompt."
+  fi
+
+  rm -f "$IMG_OUT" 2>/dev/null || true
+  exit 0
+fi
+
 HISTORY_FILE="$WS/tmp/telegram-chat-history.jsonl"
 SYSTEM_PROMPT_FILE="$WS/prompts/telegram-claude-system.md"
 mkdir -p "$WS/tmp"
