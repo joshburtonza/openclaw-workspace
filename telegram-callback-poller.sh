@@ -163,6 +163,20 @@ def supa_post_service(path, body):
     )
     return r.status_code, r.text
 
+def log_signal(actor, user_id, signal_type, signal_data=None):
+    """Write a typed interaction signal to interaction_log for memory-writer to process."""
+    try:
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/interaction_log",
+            headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}',
+                     'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
+            json={'actor': actor, 'user_id': user_id,
+                  'signal_type': signal_type, 'signal_data': signal_data or {}},
+            timeout=5
+        )
+    except Exception:
+        pass  # never block the main flow
+
 # ── Handle /newlead command ───────────────────────────────────────────────────
 def handle_newlead(chat_id, text):
     """
@@ -506,17 +520,39 @@ for u in updates:
                           'book_flight', 'book_cancel'):
             continue
 
+        # Fetch email context for signal logging (non-blocking)
+        _email_ctx = {}
+        if action in ('approve', 'hold', 'adjust') and email_id:
+            try:
+                _r = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/email_queue?id=eq.{email_id}&select=client,subject,analysis",
+                    headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}'},
+                    timeout=5
+                )
+                if _r.status_code == 200 and _r.json():
+                    _row = _r.json()[0]
+                    _email_ctx = {
+                        'email_id': email_id,
+                        'client': _row.get('client', ''),
+                        'subject': _row.get('subject', ''),
+                    }
+            except Exception:
+                _email_ctx = {'email_id': email_id}
+
         if action == 'approve':
             supa_patch_anon(f"email_queue?id=eq.{email_id}", {'status': 'approved'})
+            log_signal('josh', _email_ctx.get('client') or 'unknown', 'email_approved', _email_ctx)
             if chat_id:
                 tg_send(chat_id, '✅ Approved. Scheduler will send shortly.')
 
         elif action == 'hold':
             supa_patch_anon(f"email_queue?id=eq.{email_id}", {'status': 'awaiting_approval'})
+            log_signal('josh', _email_ctx.get('client') or 'unknown', 'email_held', _email_ctx)
             if chat_id:
                 tg_send(chat_id, '⏸ Held. Still awaiting approval. You can hit Adjust later.')
 
         elif action == 'adjust':
+            log_signal('josh', _email_ctx.get('client') or 'unknown', 'email_adjusted', _email_ctx)
             if chat_id:
                 pending_file = f"/Users/henryburton/.openclaw/workspace-anthropic/tmp/telegram_pending_adjust_{chat_id}"
                 with open(pending_file, 'w') as f:
@@ -531,6 +567,7 @@ for u in updates:
                          'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
                 json={'status': 'dismissed'}, timeout=10
             )
+            log_signal('josh', 'josh', 'reminder_done', {'notification_id': email_id})
             if chat_id:
                 tg_send(chat_id, '✅ Reminder done!')
 
@@ -562,6 +599,7 @@ for u in updates:
                 )
             except Exception:
                 pass
+            log_signal('josh', 'josh', 'reminder_snoozed', {'notification_id': email_id})
             if chat_id:
                 tg_send(chat_id, '⏱ Snoozed 15 minutes.')
 

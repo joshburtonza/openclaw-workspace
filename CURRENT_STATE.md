@@ -1,4 +1,4 @@
-# CURRENT STATE — 2026-02-25 01:00 UTC
+# CURRENT STATE — 2026-02-26 01:00 UTC
 > Auto-generated every night. Read this file for live operational context.
 
 ## Agent Health
@@ -9,6 +9,7 @@
   ✅ tiktok-live-reminder (exit 0)
   ✅ alex-outreach (exit 0)
   ✅ nightly-flush (exit 0)
+  ⚠️ discord-community-bot (exit -15)
   ✅ sophia-cron (exit 0)
   ✅ pending-nudge (exit 0)
   ✅ heartbeat (exit 0)
@@ -34,16 +35,17 @@
   ✅ data-os-sync (exit 0)
   ✅ email-response-scheduler (exit 0)
   ✅ sophia-outbound (exit 0)
+  ⚠️ telegram-poller (exit -9)
   ✅ claude-startup (exit 0)
-  ✅ telegram-poller (exit 0)
   ✅ discord-morning-nudge (exit 0)
   ✅ retainer-tracker (exit 0)
+  ✅ telegram-health-check (exit 0)
 
 ## Email Queue
   awaiting_approval: 9
   rejected: 12
   sent: 16
-  skipped: 9
+  skipped: 10
 
 ## Pending Approvals / Auto-Sends
   ⏳ [ascend_lc] Ascend LC (QMS Guard) weekly progress report (week ending 20 (awaiting_approval)
@@ -63,60 +65,59 @@
   (none)
 
 ## Repo Status
-  workspace: 3 dirty
+  workspace: 204 dirty, 7 ahead
   mission-control-hub: clean
   qms-guard: clean
-  chrome-auto-care: 1 behind
   favorite-flow: clean
 
 ## Recent Activity
-  2026-02-25 00:36 — dirty: workspace | behind: chrome-auto-care
-  2026-02-25 00:41 — dirty: workspace | behind: chrome-auto-care
-  2026-02-25 00:46 — dirty: workspace | behind: chrome-auto-care
-  2026-02-25 00:51 — dirty: workspace | behind: chrome-auto-care
-  2026-02-25 00:56 — dirty: workspace | behind: chrome-auto-care
+  2026-02-26 00:37 — dirty: workspace
+  2026-02-26 00:42 — dirty: workspace
+  2026-02-26 00:48 — dirty: workspace
+  2026-02-26 00:53 — dirty: workspace
+  2026-02-26 00:58 — dirty: workspace
 
 ## Scope Creep Alerts
   (none)
 
 ## Today's Log
 
-### 02:41 SAST — Telegram
-**Josh:** Good morning
-**Claude:** Good morning Josh. MacBook survived the restart — good.
+### 00:40 SAST — Telegram
+**Josh:** Okay we were talking about the xport pole - do we do it in a lump sum or in a few saving
+**Claude:** Her birthday is May 5 — 68 days away. Two options:
 
-**Quick state check:**
+**Lump sum now (R4,500 ish)**
+Buy it this week. She gets it early, has it for training before her birthday, and you're not scrambling in April. Downside: cash out now.
 
-- All agents ✅ — everything healthy
-- **6 emails awaiting your approval** — 3 weekly progress reports + 3 invoice notes (all 3 clients)
-- **1 auto-pending** — Ascend LC platform refresh update
-- **qms-guard** is 4 commits behind remote — needs a pull
-- **workspace** is 18 files dirty + 1 commit ahead
+**Save R500–700/week**
+68 days = ~10 weeks. At R500/week you're at R5,000 by end of April — covers pole + Pleasers. Keeps cash flow lighter while the new clients come on board.
 
-Still need to push those backups from yesterday (chrome-auto-care CONTEXT.md/TRANSFERABILITY.md, qms-guard risk classifier, favorite-flow CONTEXT.md). Want me to do that now?
+Given you've got two clients potentially signing — I'd wait until at least one of those confirms, then do the lump sum. Gives you a clean "celebration purchase" moment and you won't feel the pinch.
 
-### 02:51 SAST — Telegram
-**Josh:** one more check here again
-**Claude:** Hooks are blocking launchctl — working from the state file for now.
+You want me to set a reminder for when to pull the trigger — say mid-April?
 
----
+### 00:44 SAST — Telegram
+**Josh:** But i am also trying to kill our debts as much possible- i believe you have all that data
+**Claude:** I don't have your debt data — from my memory notes: "Debt figures not entered by Josh (Finances UI ready and waiting)." The Finances UI exists in Mission Control but you never put the numbers in.
 
-**State as of last night (nightly at 03:00 SAST):**
+So I'm flying blind on the debt side. I don't know:
+- Total debt amount
+- What it's owed to (credit cards, bond, personal loans, etc.)
+- Monthly minimum payments
 
-**Agents:** All 33 ✅ — clean sweep
+**To give you a real answer on pole vs. debt, I need those numbers.**
 
-**Email queue:**
-- 6 awaiting your approval (3 weekly progress reports + 3 invoice notes across all 3 clients)
-- 1 auto-pending (Ascend LC platform refresh)
+Two ways to get them into the system:
+1. Just tell me now — I'll note it and we can model it
+2. Log into Mission Control and fill in the Finances tab
 
-**Repos:**
-- workspace: 18 dirty, 1 ahead — still needs pushing
-- qms-guard: 4 behind remote — needs a `git pull`
-- chrome-auto-care, favorite-flow, mission-control-hub: clean
+Once I have the debt picture, I can tell you whether R4,500 on the pole meaningfully delays payoff or whether it's basically noise. If it's noise, do the lump sum in April when the new clients confirm. If it's significant, the savings plan makes more sense.
 
-**Backups still pending from yesterday:**
-- chrome-auto-care: CONTEXT.md, TRANSFERABILITY.md
-- qms-guard: risk classifier, classify-risk Edge Function, migration SQL, CONTEXT.md
-- favorite-flow: CONTEXT.md
+What's the rough debt situation?
 
-Want me to tackle the backups and the qms-guard pull now? Or anything specific on your mind?
+### 00:47 SAST — Telegram
+**Josh:** Okay we can chat anout this tomorrow
+**Claude:** Sounds good. We'll pick it up tomorrow — bring the debt numbers if you can and we'll figure out the best move.
+
+### 00:48 SAST — Telegram
+**Josh:** i usually wake up at 6am and check this first thing every morning before anything else
