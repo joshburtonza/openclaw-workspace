@@ -119,29 +119,24 @@ def tg_send(text):
     except Exception:
         pass
 
-def openai_complete(system_prompt, user_content, model='gpt-4o'):
-    if not OPENAI_KEY:
-        return ''
-    payload = json.dumps({
-        'model': model,
-        'messages': [
-            {'role': 'system', 'content': system_prompt},
-            {'role': 'user',   'content': user_content},
-        ],
-        'temperature': 0.4,
-    }).encode()
-    req = urllib.request.Request(
-        'https://api.openai.com/v1/chat/completions',
-        data=payload,
-        headers={'Authorization': f'Bearer {OPENAI_KEY}', 'Content-Type': 'application/json'}
-    )
+def claude_complete(system_prompt, user_content):
+    full_prompt = f"{system_prompt}\n\n---\n\n{user_content}"
+    tmp = tempfile.NamedTemporaryFile(suffix='.txt', delete=False, mode='w')
+    tmp.write(full_prompt)
+    tmp.close()
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read())
-            return data['choices'][0]['message']['content'].strip()
+        env = dict(os.environ)
+        env.pop('CLAUDECODE', None)
+        result = subprocess.run(
+            ['claude', '--print', '--model', 'claude-opus-4-6', '--dangerously-skip-permissions'],
+            stdin=open(tmp.name), capture_output=True, text=True, timeout=120, env=env
+        )
+        return result.stdout.strip() or result.stderr.strip() or ''
     except Exception as e:
-        print(f"  [warn] OpenAI call failed: {e}")
+        print(f"  [warn] Claude call failed: {e}")
         return ''
+    finally:
+        os.unlink(tmp.name)
 
 def extract_meeting_name(subject):
     gemini_match = re.match(r'^Notes:\s*"(.+?)"', subject)
@@ -297,7 +292,7 @@ for name_key, mtg in meetings.items():
 ## Notes ({len(chunks)} source(s) combined)
 {merged_transcript}"""
 
-    analysis = openai_complete(SYSTEM_PROMPT, user_content, model='gpt-4o')
+    analysis = claude_complete(SYSTEM_PROMPT, user_content)
     if not analysis:
         analysis = '_(Analysis unavailable — OpenAI call failed)_'
 
