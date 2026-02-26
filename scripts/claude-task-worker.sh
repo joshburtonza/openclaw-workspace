@@ -61,7 +61,7 @@ TASK_PROMPT=$(echo "$TASK_JSON" | python3 -c "import json,sys; d=json.load(sys.s
 log "Picked up: $TASK_TITLE ($TASK_ID)"
 
 # ── Mark as executing ─────────────────────────────────────────────────────────
-NOW=$(python3 -c "import datetime; print(datetime.datetime.utcnow().isoformat()+'Z')")
+NOW=$(python3 -c "import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))")
 supa_patch "task_queue?id=eq.${TASK_ID}" \
   "{\"status\":\"executing\",\"started_at\":\"${NOW}\"}"
 
@@ -102,7 +102,7 @@ RESPONSE=$(claude --print \
 
 rm -f "$PROMPT_TMP"
 
-COMPLETED_AT=$(python3 -c "import datetime; print(datetime.datetime.utcnow().isoformat()+'Z')")
+COMPLETED_AT=$(python3 -c "import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))")
 
 # ── Write result back to Supabase ─────────────────────────────────────────────
 if [[ -n "$RESPONSE" ]]; then

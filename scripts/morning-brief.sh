@@ -280,7 +280,7 @@ def supa_get(path):
     except Exception:
         return []
 
-two_days_ago = (datetime.datetime.utcnow() - datetime.timedelta(days=2)).strftime('%Y-%m-%dT%H:%M:%SZ')
+two_days_ago = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=2)).strftime('%Y-%m-%dT%H:%M:%SZ')
 cal_rows = supa_get("calendar_events?start_at=gte." + two_days_ago + "&select=title,description,start_at&order=start_at.desc&limit=20")
 
 sa_keywords = ['south africa', ' sa ', 'mining', 'logistics', 'legal', 'property', 'aleadx', 'procure']
@@ -452,12 +452,12 @@ def supa_get(path):
         return []
 
 # Email queue stats (last 7 days)
-seven_ago = (datetime.datetime.utcnow() - datetime.timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
+seven_ago = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
 email_rows = supa_get("email_queue?select=status&created_at=gte." + seven_ago)
 ec = collections.Counter(r.get('status', '') for r in email_rows)
 
 # Retainer revenue signals (current month)
-curr_month = datetime.datetime.utcnow().strftime('%Y-%m')
+curr_month = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m')
 income_rows  = supa_get("income_entries?month=eq." + curr_month + "&select=client,amount,status")
 client_rows  = supa_get("clients?status=eq.active&select=name")
 active_names = [c['name'] for c in client_rows]
@@ -547,7 +547,7 @@ def supa_get(path):
     except Exception:
         return []
 
-seven_ago = (datetime.datetime.utcnow() - datetime.timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
+seven_ago = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 cal_rows = supa_get("calendar_events?start_at=gte." + seven_ago + "&status=eq.confirmed&select=title,description,start_at&order=start_at.desc&limit=15")
 meetings = []
@@ -953,8 +953,8 @@ def supa_get(path):
         return []
 
 # Today's date range (UTC)
-today_start = datetime.datetime.utcnow().strftime('%Y-%m-%dT00:00:00Z')
-today_end   = datetime.datetime.utcnow().strftime('%Y-%m-%dT23:59:59Z')
+today_start = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT00:00:00Z')
+today_end   = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT23:59:59Z')
 
 cal_rows = supa_get(
     "calendar_events?start_at=gte." + today_start +

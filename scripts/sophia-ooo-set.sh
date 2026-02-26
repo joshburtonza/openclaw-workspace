@@ -50,7 +50,7 @@ payload = {
     "value": json.dumps({
         "enabled": True,
         "reason": REASON,
-        "set_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "set_at": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
     })
 }
 

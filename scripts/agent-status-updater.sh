@@ -19,7 +19,7 @@ import os, time, datetime, subprocess, json, urllib.parse
 SUPABASE_URL = os.environ['SUPABASE_URL']
 API_KEY      = os.environ['API_KEY']
 WS           = os.environ['WS']
-NOW          = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+NOW          = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 ONLINE_THRESHOLD = 3600    # 1 hour
 IDLE_THRESHOLD   = 86400   # 24 hours

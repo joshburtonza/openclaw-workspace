@@ -93,7 +93,7 @@ except FileNotFoundError:
     pass
 
 # Parse messages from last 24h
-cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=24)
 messages_by_client = {}
 new_message_ids = []  # IDs to mark read via API
 
