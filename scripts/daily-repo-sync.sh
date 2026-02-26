@@ -13,6 +13,7 @@ unset CLAUDECODE
 REPOS=(
   "qms-guard:Ascend LC (QMS Guard)"
   "favorite-flow-9637aff2:Favorite Logistics (FLAIR)"
+  "chrome-auto-care:Race Technik (Chrome Auto Care)"
 )
 
 echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") Daily repo sync starting"
