@@ -17,7 +17,8 @@ SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 FROM_ACCOUNT="alex@amalfiai.com"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="1140320036"
-MODEL="claude-sonnet-4-6"
+OPENAI_MODEL="gpt-4o"
+export OPENAI_MODEL
 LOG="$WS/out/alex-outreach.log"
 
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
@@ -36,7 +37,7 @@ TASK_ID=$(task_create "Alex outreach run" "Selecting and emailing next lead in s
 export SUPABASE_URL SUPABASE_KEY FROM_ACCOUNT BOT_TOKEN CHAT_ID MODEL
 
 python3 - <<'PY'
-import os, sys, json, subprocess, datetime, time, re, tempfile
+import os, sys, json, subprocess, datetime, time, re
 import urllib.request, urllib.error
 from html.parser import HTMLParser
 
@@ -420,21 +421,27 @@ Write a short graceful close. Rules:
 
 def generate_email(lead, step, website_context):
     prompt = build_prompt(lead, step, website_context)
-    with tempfile.NamedTemporaryFile(mode='w', suffix='', delete=False, prefix='/tmp/alex-prompt-') as f:
-        f.write(prompt)
-        prompt_file = f.name
+    api_key = os.environ.get('OPENAI_API_KEY', '')
+    model   = os.environ.get('OPENAI_MODEL', 'gpt-4o')
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY not set")
 
-    env = {k: v for k, v in os.environ.items() if k not in ('CLAUDECODE', 'CLAUDE_CODE')}
-
-    result = subprocess.run(
-        ['claude', '--print', '--model', MODEL],
-        stdin=open(prompt_file), capture_output=True, text=True, timeout=90, env=env,
+    import urllib.request as _req
+    payload = json.dumps({
+        'model': model,
+        'messages': [{'role': 'user', 'content': prompt}],
+        'temperature': 0.8,
+    }).encode()
+    req = _req.Request(
+        'https://api.openai.com/v1/chat/completions',
+        data=payload,
+        headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
     )
-    os.unlink(prompt_file)
-
-    raw = result.stdout.strip()
+    with _req.urlopen(req, timeout=90) as resp:
+        data = json.loads(resp.read())
+    raw = data['choices'][0]['message']['content'].strip()
     if not raw:
-        raise ValueError(f"Empty response from Claude (stderr: {result.stderr[:200]})")
+        raise ValueError("Empty response from OpenAI")
 
     subject, body = '', ''
     for i, line in enumerate(raw.split('\n')):
