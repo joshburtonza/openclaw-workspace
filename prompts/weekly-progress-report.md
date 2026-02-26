@@ -1,7 +1,7 @@
 # WEEKLY PROGRESS REPORT — PROMPT / TEMPLATE SPEC
 
 Used by: `scripts/weekly-reports/generate-weekly-client-reports.sh`
-Clients: ascend_lc, favorite_logistics
+Clients: ascend_lc, favorite_logistics, race_technik
 Schedule: Monday 07:00 (launchagent: weekly-client-reports)
 
 ---

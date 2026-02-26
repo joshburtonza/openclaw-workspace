@@ -210,7 +210,8 @@ make_report_for_client() {
 
 # One PDF per client, no bleed
 # relationship_type: retainer | bd_partner | prospect (matches data/client-projects.json)
-make_report_for_client "ascend_lc"          "Ascend LC (QMS Guard)"        "$ROOT/qms-guard"              "riaan@ascendlc.co.za"        "bd_partner"
-make_report_for_client "favorite_logistics" "Favorite Logistics (FLAIR)"   "$ROOT/favorite-flow-9637aff2" "rapizo92@gmail.com"          "retainer"
+make_report_for_client "ascend_lc"          "Ascend LC (QMS Guard)"        "$ROOT/qms-guard"              "riaan@ascendlc.co.za"          "bd_partner"
+make_report_for_client "favorite_logistics" "Favorite Logistics (FLAIR)"   "$ROOT/favorite-flow-9637aff2" "rapizo92@gmail.com"            "retainer"
+make_report_for_client "race_technik"       "Race Technik (Chrome Auto)"   "$ROOT/chrome-auto-care"       "racetechnik010@gmail.com"      "retainer"
 
 echo "All weekly reports generated in: $OUT_DIR" >&2

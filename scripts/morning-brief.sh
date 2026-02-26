@@ -97,7 +97,7 @@ else:
 
 # Repo changes (last 24h)
 REPO_CHANGES=""
-for ENTRY in "qms-guard:Ascend LC" "favorite-flow-9637aff2:Favorite Logistics"; do
+for ENTRY in "qms-guard:Ascend LC" "favorite-flow-9637aff2:Favorite Logistics" "chrome-auto-care:Race Technik"; do
   DIR="${ENTRY%%:*}"
   NAME="${ENTRY#*:}"
   COMMITS=$(git -C "$WORKSPACE/clients/$DIR" log --oneline --since="24 hours ago" 2>/dev/null | wc -l | tr -d ' ')
@@ -469,6 +469,7 @@ total_inv    = sum(float(e.get('amount', 0) or 0) for e in income_rows if e.get(
 repos = [
     ("qms-guard",                "Ascend LC"),
     ("favorite-flow-9637aff2",   "Favorite Logistics"),
+    ("chrome-auto-care",         "Race Technik"),
 ]
 repo_parts = []
 for (d, n) in repos:
@@ -778,7 +779,7 @@ fi
 RETAINER_PENDING_COUNT=$(echo "$PENDING_JSON" | python3 -c "
 import json, sys
 rows = json.loads(sys.stdin.read()) or []
-retainer_clients = {'ascend_lc', 'favorite_logistics'}
+retainer_clients = {'ascend_lc', 'favorite_logistics', 'race_technik'}
 print(sum(1 for r in rows if r.get('client','') in retainer_clients))
 " 2>/dev/null || echo "0")
 

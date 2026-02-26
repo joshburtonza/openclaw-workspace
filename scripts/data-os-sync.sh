@@ -127,6 +127,7 @@ print("  [4] Calculating repo commit velocity...")
 repos = [
     ("qms-guard",              "Ascend LC",           "ascend_lc"),
     ("favorite-flow-9637aff2", "Favorite Logistics",  "favorite_logistics"),
+    ("chrome-auto-care",       "Race Technik",        "race_technik"),
 ]
 commit_velocity = {}
 for (d, name, slug) in repos:

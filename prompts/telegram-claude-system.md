@@ -66,7 +66,7 @@ This file shows: agent health, email queue stats, pending approvals, repo status
         "metadata": {"repo": "<repo-key>"}
       }'
 
-  Repo keys: qms-guard | favorite-flow | metal-solutions
+  Repo keys: qms-guard | favorite-flow | chrome-auto-care | metal-solutions
 
   Each repo has a CONTEXT.md at its root with client background, key contacts, tech notes and current focus.
   Always read it before working on or queuing tasks for a client repo:

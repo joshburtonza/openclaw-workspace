@@ -261,7 +261,7 @@ Key directories:
 - launchagents/         — LaunchAgent plists
 - memory/               — MEMORY.md, research-intel.md
 - mission-control-hub/  — React dashboard (TypeScript)
-- clients/              — client repos (qms-guard, favorite-flow-9637aff2, metal-solutions-elegance-site)
+- clients/              — client repos (qms-guard, favorite-flow-9637aff2, chrome-auto-care, metal-solutions-elegance-site)
 
 ## CURRENT SYSTEM STATE
 ${CURRENT_STATE}
