@@ -166,6 +166,44 @@ def fetch_body(email_id, fallback):
         print(f"  [warn] Could not fetch body for {email_id}: {e}")
     return fallback
 
+def fetch_drive_transcript(meeting_name):
+    """Search Google Drive for a Gemini Notes doc matching the meeting name and return full text."""
+    try:
+        result = subprocess.run(
+            ['gog', 'drive', 'search', meeting_name, '--account', ACCOUNT,
+             '--json', '--results-only'],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        files = json.loads(result.stdout)
+        if isinstance(files, dict):
+            files = files.get('files', [])
+        # Find the Gemini Notes doc (Google Doc with "Notes by Gemini" in name)
+        doc = next((
+            f for f in files
+            if f.get('mimeType') == 'application/vnd.google-apps.document'
+            and 'Notes by Gemini' in f.get('name', '')
+        ), None)
+        if not doc:
+            return None
+        file_id = doc['file_id'] if 'file_id' in doc else doc.get('id','')
+        if not file_id:
+            return None
+        dl = subprocess.run(
+            ['gog', 'drive', 'download', file_id, '--account', ACCOUNT, '--format', 'txt'],
+            capture_output=True, text=True, timeout=60
+        )
+        # gog outputs the saved path — find and read it
+        for line in dl.stdout.splitlines():
+            if line.startswith('path'):
+                path = line.split('\t', 1)[-1].strip()
+                with open(path) as f:
+                    return f.read()
+    except Exception as e:
+        print(f"  [warn] Drive transcript fetch failed: {e}")
+    return None
+
 SYSTEM_PROMPT = """You are a sharp meeting intelligence analyst for Josh Burton, founder of Amalfi AI — an AI agency building AI operating systems for South African businesses.
 
 Your job: give Josh a fast, honest, useful debrief he can act on immediately. He reads this on his phone.
@@ -238,8 +276,16 @@ for email in emails:
         seen.add(email_id)
         continue
 
-    clean = clean_email_body(body)
     meeting_name = extract_meeting_name(subject)
+
+    # For Gemini emails, try to pull the full transcript from Google Drive
+    if 'gemini' in sender.lower() or 'google.com' in sender.lower():
+        drive_text = fetch_drive_transcript(meeting_name)
+        if drive_text and len(drive_text) > len(body):
+            print(f"  [drive] Using full Drive transcript ({len(drive_text)} chars)")
+            body = drive_text
+
+    clean = clean_email_body(body)
     name_key = re.sub(r'\s+', ' ', meeting_name.lower().strip())
 
     if name_key not in meetings:
