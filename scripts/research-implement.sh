@@ -149,11 +149,13 @@ CLIENTS = os.environ['CLIENTS']
 key = """${REPO_KEY}"""
 
 REPO_MAP = {
-    'qms-guard':       f"{CLIENTS}/qms-guard",
-    'favorite-flow':   f"{CLIENTS}/favorite-flow-9637aff2",
-    'favlog':          f"{CLIENTS}/favorite-flow-9637aff2",
-    'metal-solutions': f"{CLIENTS}/metal-solutions-elegance-site",
-    'rt-metal':        f"{CLIENTS}/metal-solutions-elegance-site",
+    'qms-guard':        f"{CLIENTS}/qms-guard",
+    'favorite-flow':    f"{CLIENTS}/favorite-flow-9637aff2",
+    'favlog':           f"{CLIENTS}/favorite-flow-9637aff2",
+    'chrome-auto-care': f"{CLIENTS}/chrome-auto-care",
+    'race-technik':     f"{CLIENTS}/chrome-auto-care",
+    'metal-solutions':  f"{CLIENTS}/metal-solutions-elegance-site",
+    'rt-metal':         f"{CLIENTS}/metal-solutions-elegance-site",
 }
 
 path = REPO_MAP.get(key, '')

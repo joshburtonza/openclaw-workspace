@@ -15,7 +15,7 @@ Also check for any emails currently in-flight (pending/auto_pending/awaiting_app
      -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ"
 
 LOGIC:
-- For each active client (ascend_lc, favorite_logistics):
+- For each active client (ascend_lc, favorite_logistics, race_technik):
   - If last sent email was MORE than 3 days ago AND no in-flight emails → needs follow-up
   - If last sent email was LESS than 3 days ago → skip
   - If no sent emails at all AND no in-flight → needs follow-up (first contact check-in)
