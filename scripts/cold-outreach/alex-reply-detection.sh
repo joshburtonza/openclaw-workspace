@@ -87,6 +87,26 @@ def tg(chat_id, text):
 def now_utc():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
+def log_signal(user_id, signal_type, signal_data=None):
+    """Fire-and-forget: log a typed signal to interaction_log for adaptive memory."""
+    try:
+        data = json.dumps({
+            'actor': 'alex',
+            'user_id': user_id or 'unknown',
+            'signal_type': signal_type,
+            'signal_data': signal_data or {},
+        }).encode()
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/interaction_log",
+            data=data,
+            headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}',
+                     'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
+            method='POST',
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass  # never block the main flow
+
 # ── Intent classification ───────────────────────────────────────────────────────
 
 VOICE_AI_KEYWORDS = [
@@ -284,6 +304,9 @@ def process_lead(lead):
         except Exception as e:
             print(f"  [!] Supabase patch failed for {lead['id']}: {e}", file=sys.stderr)
             return
+        log_signal(lead['id'], 'reply_received', {
+            'intent': 'UNSUBSCRIBE', 'email': email, 'company': company, 'name': name,
+        })
         with lock:
             write_jsonl(os.path.join(WS, 'tmp', 'unsubscribes.jsonl'), entry)
         print(f"  → Auto-suppressed {email} from sequence")
@@ -302,6 +325,19 @@ def process_lead(lead):
     except Exception as e:
         print(f"  [!] Supabase patch failed for {lead['id']}: {e}", file=sys.stderr)
         return
+
+    # Log base signal + specific intent signals to interaction_log
+    log_signal(lead['id'], 'reply_received', {
+        'intent': intent, 'enthusiasm': enthusiasm, 'email': email,
+        'company': company, 'name': name,
+    })
+    if intent in ('POSITIVE_INTERESTED', 'VOICE_AI_LEAD'):
+        log_signal(lead['id'], 'reply_positive', {
+            'enthusiasm': enthusiasm, 'email': email, 'company': company,
+            'category': 'voice_ai' if intent == 'VOICE_AI_LEAD' else 'interested',
+        })
+    elif intent == 'OBJECTION':
+        log_signal(lead['id'], 'reply_objection', {'email': email, 'company': company})
 
     with lock:
         if intent == 'VOICE_AI_LEAD':

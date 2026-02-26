@@ -181,6 +181,30 @@ for r in rows:
         # ── Post-send: update client sentiment + notes ────────────────────────
         client_slug = analysis_out.get('client_slug') or analysis.get('client_slug') or ''
         sentiment   = analysis_out.get('sentiment') or analysis.get('sentiment') or ''
+
+        # ── Log to interaction_log (adaptive memory) ─────────────────────────
+        try:
+            requests.post(
+                f"{SUPABASE_URL}/rest/v1/interaction_log",
+                headers={'apikey': ANON_KEY, 'Authorization': f'Bearer {ANON_KEY}',
+                         'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
+                json={
+                    'actor': 'sophia',
+                    'user_id': client_slug or 'unknown',
+                    'signal_type': 'email_sent',
+                    'signal_data': {
+                        'email_id': email_id,
+                        'subject': subj,
+                        'to': to,
+                        'gmail_message_id': msg_id,
+                        'client_slug': client_slug,
+                        'sentiment': sentiment,
+                    },
+                },
+                timeout=5
+            )
+        except Exception:
+            pass  # non-fatal — email is already sent
         if client_slug and client_slug not in ('unknown', 'new_contact', ''):
             try:
                 # Build a brief dated note entry

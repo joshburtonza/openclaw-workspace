@@ -348,6 +348,30 @@ for name_key, mtg in meetings.items():
     except Exception as e:
         print(f"  [warn] research_sources insert failed: {e}")
 
+    # Log to interaction_log (adaptive memory)
+    try:
+        signal_payload = json.dumps({
+            'actor': 'conductor',
+            'user_id': client_key or 'unknown',
+            'signal_type': 'meeting_analysed',
+            'signal_data': {
+                'meeting_name': meeting_name,
+                'subject': subjects[0],
+                'client_key': client_key,
+                'sources': sources,
+            },
+        }).encode()
+        sig_req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/interaction_log",
+            data=signal_payload,
+            headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}',
+                     'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
+            method='POST',
+        )
+        urllib.request.urlopen(sig_req, timeout=5)
+    except Exception:
+        pass  # non-fatal
+
     # Mark all source emails as read
     for eid in email_ids:
         subprocess.run(
