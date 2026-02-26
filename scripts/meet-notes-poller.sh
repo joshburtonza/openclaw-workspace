@@ -1,7 +1,8 @@
 #!/bin/bash
 # meet-notes-poller.sh
-# Watches josh@amalfiai.com for Read AI meeting note emails.
-# When found: fetches full content, runs Claude analysis, sends Telegram debrief immediately.
+# Watches josh@amalfiai.com for Gemini Notes meeting emails.
+# Fetches full transcript from Google Drive (email body is truncated).
+# Runs Claude Opus analysis, sends Telegram debrief immediately.
 # Also saves to research_sources for long-term intel pipeline.
 # Runs every 15 min via LaunchAgent.
 
@@ -25,55 +26,17 @@ BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
 SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 ACCOUNT="josh@amalfiai.com"
-OPENAI_KEY="${OPENAI_API_KEY:-}"
 
 touch "$SEEN_FILE"
 
-# ── Search for unread meeting note emails (two queries, merged) ────────────────
-# Read AI:  from executiveassistant@e.read.ai
-# Gemini:   from gemini-notes@google.com
+# ── Search for unread Gemini Notes emails ─────────────────────────────────────
+# Gemini Notes emails contain a truncated summary; full transcript is on Google Drive.
+# Read AI dropped — it only provides truncated summaries with no Drive equivalent.
 
-READAI_JSON=$(gog gmail search \
-  "from:executiveassistant@e.read.ai is:unread" \
-  --account "$ACCOUNT" \
-  --json --results-only 2>/dev/null || echo "[]")
-
-GEMINI_JSON=$(gog gmail search \
+EMAILS_JSON=$(gog gmail search \
   "from:gemini-notes@google.com is:unread" \
   --account "$ACCOUNT" \
   --json --results-only 2>/dev/null || echo "[]")
-
-# Merge both lists, deduplicate by id
-EMAILS_JSON=$(python3 -c "
-import json, sys
-readai = json.loads('$READAI_JSON'.replace(\"'\", '\"')) if '$READAI_JSON'.strip().startswith('[') else []
-gemini = json.loads('$GEMINI_JSON'.replace(\"'\", '\"')) if '$GEMINI_JSON'.strip().startswith('[') else []
-" 2>/dev/null || echo "[]")
-
-export READAI_JSON GEMINI_JSON
-
-EMAILS_JSON=$(python3 - <<'PYMERGE'
-import os, json
-readai_raw = os.environ.get('READAI_JSON', '[]')
-gemini_raw = os.environ.get('GEMINI_JSON', '[]')
-try:
-    readai = json.loads(readai_raw) if readai_raw.strip().startswith('[') else []
-except Exception:
-    readai = []
-try:
-    gemini = json.loads(gemini_raw) if gemini_raw.strip().startswith('[') else []
-except Exception:
-    gemini = []
-seen_ids = set()
-merged = []
-for e in readai + gemini:
-    eid = e.get('id') or e.get('messageId','')
-    if eid and eid not in seen_ids:
-        seen_ids.add(eid)
-        merged.append(e)
-print(json.dumps(merged))
-PYMERGE
-)
 
 COUNT=$(echo "$EMAILS_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(len(d) if isinstance(d,list) else 0)" 2>/dev/null || echo "0")
 
@@ -84,7 +47,7 @@ fi
 
 log "Found $COUNT meeting note email(s). Processing..."
 
-export EMAILS_JSON KEY SUPABASE_URL BOT_TOKEN CHAT_ID SEEN_FILE ACCOUNT OPENAI_KEY WS
+export EMAILS_JSON KEY SUPABASE_URL BOT_TOKEN CHAT_ID SEEN_FILE ACCOUNT WS
 
 python3 - <<'PY'
 import os, json, subprocess, urllib.request, urllib.error, datetime, re, tempfile
@@ -96,7 +59,6 @@ BOT_TOKEN    = os.environ['BOT_TOKEN']
 CHAT_ID      = os.environ['CHAT_ID']
 SEEN_FILE    = os.environ['SEEN_FILE']
 ACCOUNT      = os.environ['ACCOUNT']
-OPENAI_KEY   = os.environ.get('OPENAI_KEY', '')
 WS           = os.environ['WS']
 
 emails = json.loads(EMAILS_JSON) if EMAILS_JSON.strip().startswith('[') else []
@@ -237,7 +199,6 @@ FORMAT — use exactly this structure, plain Markdown, no extra headers:
 
 RULES:
 - If the notes were truncated or cut off, say so at the very top: "⚠️ Notes were partial — debrief based on available content"
-- If you received notes from multiple sources (Read AI + Gemini), synthesise them — don't repeat, combine
 - If names/companies are unknown, say so rather than guessing
 - Flag scope creep, compliance risk, or unclear priorities
 - No padding, no "great session" filler, no corporate speak"""
@@ -340,7 +301,7 @@ for name_key, mtg in meetings.items():
 
     analysis = claude_complete(SYSTEM_PROMPT, user_content)
     if not analysis:
-        analysis = '_(Analysis unavailable — OpenAI call failed)_'
+        analysis = '_(Analysis unavailable — Claude call failed)_'
 
     # Send — split if over Telegram limit
     if len(analysis) <= 4000:

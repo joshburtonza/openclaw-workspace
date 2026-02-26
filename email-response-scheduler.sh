@@ -162,7 +162,7 @@ for r in rows:
         if not msg_id:
             raise RuntimeError('Missing message_id from gog output')
 
-        sent_ts = datetime.datetime.utcnow().replace(microsecond=0).isoformat()+'Z'
+        sent_ts = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
 
         # Store gmail message id inside analysis so we never claim 'sent' without proof
         try:
@@ -185,7 +185,7 @@ for r in rows:
             try:
                 # Build a brief dated note entry
                 import datetime as _dt
-                today = _dt.datetime.utcnow().strftime('%Y-%m-%d')
+                today = _dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%d')
                 note_entry = f"[{today}] Email sent: {subj}"
 
                 # Fetch existing notes first

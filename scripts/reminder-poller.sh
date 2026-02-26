@@ -26,11 +26,12 @@ KEY          = os.environ['SERVICE_KEY']
 BOT_TOKEN    = os.environ['BOT_TOKEN']
 CHAT_ID      = os.environ['CHAT_ID']
 
-SAST         = datetime.timezone(datetime.timedelta(hours=2))
-now          = datetime.datetime.now(SAST)
-window_end   = now + datetime.timedelta(minutes=15)
-resend_gap   = datetime.timedelta(minutes=10)  # min gap between re-alerts
-stale_cutoff = datetime.timedelta(minutes=60)  # don't fire if >60min overdue
+SAST           = datetime.timezone(datetime.timedelta(hours=2))
+now            = datetime.datetime.now(SAST)
+window_end     = now + datetime.timedelta(minutes=15)
+resend_gap     = datetime.timedelta(minutes=10)  # min gap between re-alerts
+stale_cutoff   = datetime.timedelta(minutes=60)  # don't fire if >60min overdue
+auto_dismiss_h = datetime.timedelta(hours=4)     # auto-dismiss if >4h overdue and unread
 
 def tg_send(text, markup=None):
     payload = {'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'HTML'}
@@ -45,7 +46,7 @@ def tg_send(text, markup=None):
         pass
 
 def supa_patch(rid, body):
-    requests.patch(
+    r = requests.patch(
         f"{SUPABASE_URL}/rest/v1/notifications?id=eq.{rid}",
         headers={
             'apikey': KEY, 'Authorization': f'Bearer {KEY}',
@@ -53,6 +54,10 @@ def supa_patch(rid, body):
         },
         json=body, timeout=10
     )
+    if r.status_code not in (200, 204):
+        print(f'[reminder-poller] WARN: patch failed for {rid}: HTTP {r.status_code} {r.text[:100]}', file=sys.stderr)
+        return False
+    return True
 
 # Fetch all unread reminders
 resp = requests.get(
@@ -92,6 +97,14 @@ for rem in reminders:
     except Exception:
         continue
 
+    overdue = now - due
+
+    # Auto-dismiss reminders that are very overdue — they were clearly missed
+    if overdue > auto_dismiss_h:
+        supa_patch(rid, {'status': 'dismissed'})
+        print(f'Auto-dismissed stale reminder: {title} ({int(overdue.total_seconds()//3600)}h overdue)')
+        continue
+
     # Window: not more than 60 min overdue, and not more than 15 min in future
     if not (now - stale_cutoff <= due <= window_end):
         continue
@@ -128,7 +141,7 @@ for rem in reminders:
     }
     tg_send(msg, markup)
 
-    # Record last_sent_at so we don't spam
+    # Record last_sent_at so we don't spam — if this fails, next poll may re-fire
     meta['last_sent_at'] = now.isoformat()
     supa_patch(rid, {'metadata': meta})
 
