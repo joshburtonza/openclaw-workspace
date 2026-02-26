@@ -133,13 +133,12 @@ PY
   fi
 
   # Extract repo key from metadata (e.g. metadata.repo = "qms-guard")
-  REPO_KEY=$(echo "$TASK_JSON" | python3 - <<'PY'
+  REPO_KEY=$(echo "$TASK_JSON" | python3 -c "
 import sys, json
-t = json.load(sys.stdin)
+t = json.loads(sys.stdin.read())
 meta = t.get('metadata') or {}
 print(meta.get('repo', ''))
-PY
-  )
+" 2>/dev/null || echo "")
 
   # ── Resolve repo path ──────────────────────────────────────────────────────
 

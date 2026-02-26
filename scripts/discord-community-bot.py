@@ -274,14 +274,20 @@ if not TOKEN:
     print("ERROR: DISCORD_BOT_TOKEN not set in .env.scheduler", file=sys.stderr)
     sys.exit(1)
 
-# Clean shutdown on SIGTERM (launchd stop) — exit 0 so error-monitor doesn't flag it
-def _sigterm_handler(signum, frame):
-    print("[shutdown] SIGTERM received — closing bot cleanly", flush=True)
-    if client.loop and client.loop.is_running():
-        client.loop.call_soon_threadsafe(client.loop.stop)
-    sys.exit(0)
+async def main():
+    loop = asyncio.get_running_loop()
 
-signal.signal(signal.SIGTERM, _sigterm_handler)
-signal.signal(signal.SIGINT, _sigterm_handler)
+    def handle_shutdown():
+        print("[shutdown] Signal received — closing bot cleanly", flush=True)
+        loop.create_task(client.close())
 
-client.run(TOKEN, log_handler=None)
+    # Use loop.add_signal_handler (asyncio-safe) instead of signal.signal,
+    # which fires at C-level inside selectors.select() and causes RuntimeError
+    # when create_task() is called on a loop that isn't between iterations.
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, handle_shutdown)
+
+    async with client:
+        await client.start(TOKEN)
+
+asyncio.run(main())

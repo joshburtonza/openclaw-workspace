@@ -72,6 +72,7 @@ async function main() {
   const numCards = Number(arg('numCards', '16'));
   const inFile = arg('in');
   const outFile = arg('out', `/tmp/gamma-${Date.now()}.pdf`);
+  const customInstructions = arg('instructions');
 
   if (!inFile) {
     console.error('Missing --in <input.md>');
@@ -87,7 +88,7 @@ async function main() {
     themeId,
     numCards,
     cardSplit: 'auto',
-    additionalInstructions: `Use the Chimney Smoke theme. Make this card-heavy. Title: ${title}. Use clear sections: What we shipped last week, What we are doing next week, Risks or blockers, Decisions needed. Keep it client-friendly.`,
+    additionalInstructions: customInstructions || `Use the Chimney Smoke theme. Make this card-heavy. Title: ${title}. Use clear sections: What we shipped last week, What we are doing next week, Risks or blockers, Decisions needed. Keep it client-friendly.`,
     exportAs: 'pdf',
   };
 

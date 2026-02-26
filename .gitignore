@@ -42,6 +42,9 @@ ai-brief-archive/
 # Logs
 *.log
 
+# Chrome browser profiles (Lift flight search cache)
+scripts/flights/.lift-profile-*/
+
 # Nested git repos (they have their own GitHub repos)
 awesome-openclaw-skills/
 mission-control-hub/

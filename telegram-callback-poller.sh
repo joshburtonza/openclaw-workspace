@@ -336,6 +336,28 @@ def handle_remind(chat_id, text):
             due  = tmrw.replace(hour=hour, minute=minute, second=0, microsecond=0)
             desc = rest.strip()
 
+    # Pattern: <dayname> HAM/PM text  or  <dayname> HH:MM text  (e.g. "friday 10am Call Riaan")
+    if not due:
+        DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
+        m = _re.match(
+            r'^(' + '|'.join(DAYS) + r')\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+(.+)$',
+            raw, _re.IGNORECASE
+        )
+        if m:
+            day_name = m.group(1).lower()
+            hour     = int(m.group(2))
+            minute   = int(m.group(3) or 0)
+            ampm     = m.group(4)
+            desc     = m.group(5).strip()
+            if ampm:
+                if ampm.lower() == 'pm' and hour != 12: hour += 12
+                elif ampm.lower() == 'am' and hour == 12: hour = 0
+            target = DAYS.index(day_name)
+            diff   = (target - now.weekday()) % 7 or 7  # always in future
+            target_date = (now + _dt.timedelta(days=diff)).date()
+            due = _dt.datetime(target_date.year, target_date.month, target_date.day,
+                               hour, minute, 0, tzinfo=SAST)
+
     if not due:
         tg_send(chat_id,
             f"❌ Couldn't parse the time from: <code>{raw[:80]}</code>\n\n"
@@ -480,7 +502,8 @@ for u in updates:
         except ValueError:
             continue
 
-        if action not in ('approve', 'hold', 'adjust', 'remind_done', 'remind_snooze'):
+        if action not in ('approve', 'hold', 'adjust', 'remind_done', 'remind_snooze',
+                          'book_flight', 'book_cancel'):
             continue
 
         if action == 'approve':
@@ -541,6 +564,99 @@ for u in updates:
                 pass
             if chat_id:
                 tg_send(chat_id, '⏱ Snoozed 15 minutes.')
+
+        elif action == 'book_flight':
+            # email_id here is the chat_id encoded in callback_data as "book_flight:{chat_id}"
+            _pending = f"{WS_ROOT}/tmp/pending-flight-{email_id}.json"
+            if not os.path.exists(_pending):
+                if chat_id:
+                    tg_send(chat_id, '⚠️ No pending flight found. Search again with /flight.')
+            else:
+                try:
+                    with open(_pending) as _pf:
+                        _booking = json.load(_pf)
+                    os.remove(_pending)
+                except Exception as _e:
+                    if chat_id:
+                        tg_send(chat_id, f'❌ Error reading booking: {_e}')
+                    continue
+
+                _airline = (_booking.get('airline') or 'flysafair').lower()
+
+                if _airline != 'flysafair':
+                    # Lift — send direct booking link (Lift automation not yet implemented)
+                    _fr  = _booking.get('from', '');   _to  = _booking.get('to', '')
+                    _dt  = _booking.get('date', '');   _ret = _booking.get('return_date') or 'NA'
+                    _pax = _booking.get('adults', 1)
+                    _url = f"https://www.lift.co.za/flight-results/{_fr}-{_to}/{_dt}/{_ret}/{_pax}/0/0"
+                    if chat_id:
+                        tg_send(chat_id, f'<b>Lift — tap to book:</b>\n{_url}')
+                else:
+                    if chat_id:
+                        tg_send(chat_id, '\U0001f504 Opening browser to book your FlySafair flight...')
+                    _cmd = [
+                        'node',
+                        f'{WS_ROOT}/scripts/flights/book-flight.mjs',
+                        '--airline', 'flysafair',
+                        '--from',    _booking.get('from', ''),
+                        '--to',      _booking.get('to', ''),
+                        '--date',    _booking.get('date', ''),
+                        '--adults',  str(_booking.get('adults', 1)),
+                        '--confirm',
+                    ]
+                    if _booking.get('flight'):
+                        _cmd += ['--flight', _booking['flight']]
+                    if _booking.get('price'):
+                        _cmd += ['--price', str(_booking['price'])]
+                    if _booking.get('return_date'):
+                        _cmd += ['--return', _booking['return_date']]
+                    try:
+                        _res = subprocess.run(_cmd, capture_output=True, text=True, timeout=180)
+                        _out = json.loads(_res.stdout.strip()) if _res.stdout.strip() else {}
+                    except Exception as _e:
+                        if chat_id:
+                            tg_send(chat_id, f'❌ Booking error: {_e}')
+                        continue
+
+                    if _out.get('ok'):
+                        _msg = _out.get('message', 'Booking initiated.')
+                        if chat_id:
+                            tg_send(chat_id, f'✅ {_msg}')
+                        for _shot in (_out.get('screenshots') or [])[:3]:
+                            if os.path.exists(_shot):
+                                try:
+                                    requests.post(
+                                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                                        data={'chat_id': chat_id},
+                                        files={'photo': open(_shot, 'rb')},
+                                        timeout=30
+                                    )
+                                except Exception:
+                                    pass
+                    else:
+                        _err = _out.get('error', 'Unknown error')
+                        if chat_id:
+                            tg_send(chat_id, f'❌ Booking failed: {_err}')
+                        for _shot in (_out.get('screenshots') or [])[:2]:
+                            if os.path.exists(_shot):
+                                try:
+                                    requests.post(
+                                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                                        data={'chat_id': chat_id},
+                                        files={'photo': open(_shot, 'rb')},
+                                        timeout=30
+                                    )
+                                except Exception:
+                                    pass
+
+        elif action == 'book_cancel':
+            _pending = f"{WS_ROOT}/tmp/pending-flight-{email_id}.json"
+            try:
+                os.remove(_pending)
+            except Exception:
+                pass
+            if chat_id:
+                tg_send(chat_id, '\u2716 Flight booking cancelled. Search again with /flight when ready.')
 
         continue  # done with this update
 
@@ -628,24 +744,44 @@ for u in updates:
 
     # ── Media helpers ─────────────────────────────────────────────────────────
     def tg_download(file_id):
-        r = requests.get(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}",
-            timeout=10
-        )
-        data = r.json()
-        if not data.get('ok'):
-            raise ValueError(f"Telegram getFile failed: {data.get('description', 'unknown error')}")
-        file_path = (data.get('result') or {}).get('file_path')
-        if not file_path:
-            raise ValueError(f"Telegram getFile returned no file_path: {data}")
-        dl = requests.get(
-            f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}",
-            timeout=90
-        )
-        dl.raise_for_status()
-        if not dl.content:
-            raise ValueError(f"Telegram returned empty file body for {file_path}")
-        return dl.content
+        import time as _t
+        # Retry up to 4 times with backoff — [Errno 65] "No route to host" happens
+        # transiently after a long-poll cycle when macOS routing table briefly flickers
+        # (WiFi DHCP renewal, sleep/wake). getUpdates survives on its existing TCP
+        # connection; getFile needs a fresh connection and can hit the stale route.
+        last_err = None
+        for attempt in range(4):
+            try:
+                r = requests.get(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}",
+                    timeout=15
+                )
+                data = r.json()
+                if not data.get('ok'):
+                    raise ValueError(f"Telegram getFile failed: {data.get('description', 'unknown error')}")
+                file_path = (data.get('result') or {}).get('file_path')
+                if not file_path:
+                    raise ValueError(f"Telegram getFile returned no file_path: {data}")
+                dl = requests.get(
+                    f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}",
+                    timeout=90
+                )
+                dl.raise_for_status()
+                if not dl.content:
+                    raise ValueError(f"Telegram returned empty file body for {file_path}")
+                return dl.content
+            except Exception as e:
+                last_err = e
+                err_str = str(e)
+                # Only retry on connection-level errors (routing, DNS, reset)
+                if any(x in err_str for x in ('No route to host', 'Connection refused',
+                                               'Failed to establish', 'RemoteDisconnected',
+                                               'ConnectionReset', 'NewConnectionError')):
+                    if attempt < 3:
+                        _t.sleep(2 ** attempt)  # 1s, 2s, 4s
+                        continue
+                raise last_err
+        raise last_err
 
     group_history_file = f"{WS}/tmp/group-{chat_id}.jsonl" if is_group else ''
 
