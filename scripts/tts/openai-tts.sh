@@ -35,6 +35,13 @@ if [[ -z "$TEXT" ]]; then
   exit 1
 fi
 
+# Optimize text for natural spoken delivery via Claude
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OPTIMIZED=$(bash "$SCRIPT_DIR/tts-optimize.sh" "$TEXT" 2>/dev/null)
+if [[ -n "$OPTIMIZED" ]]; then
+  TEXT="$OPTIMIZED"
+fi
+
 # Request opus directly — no ffmpeg needed
 HTTP_STATUS=$(curl -sf \
   "https://api.openai.com/v1/audio/speech" \
