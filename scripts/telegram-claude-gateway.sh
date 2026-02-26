@@ -773,7 +773,7 @@ PYSTRIP
         -H "Content-Type: application/json" \
         -d "{\"chat_id\": \"${CHAT_ID}\", \"action\": \"upload_voice\"}" >/dev/null 2>&1 || true
 
-      if bash "$WS/scripts/tts/csm-tts.sh" "$CLEAN_TEXT" "$AUDIO_OUT" "conversational" 2>>"$WS/out/gateway-errors.log"; then
+      if bash "$WS/scripts/tts/openai-tts.sh" "$CLEAN_TEXT" "$AUDIO_OUT" 2>>"$WS/out/gateway-errors.log"; then
         TTS_RESP=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendVoice" \
           -F "chat_id=${CHAT_ID}" \
           -F "voice=@${AUDIO_OUT}" 2>/dev/null || echo "")

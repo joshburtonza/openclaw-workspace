@@ -722,10 +722,10 @@ echo "  Brief generated ($(echo "$BRIEF_TEXT" | wc -w | tr -d ' ') words)"
 mkdir -p "$(dirname "$AUDIO_OUT")"
 
 TTS_OK=false
-# Try CSM first (Sesame CSM-1B via HF Space — best quality), fall back to MiniMax
-if python3 "$WORKSPACE/scripts/tts/csm-tts.py" "$BRIEF_TEXT" "$AUDIO_OUT" "read_speech" 2>/dev/null; then
+# OpenAI TTS (tts-1-hd, nova voice) — fall back to MiniMax if it fails
+if bash "$WORKSPACE/scripts/tts/openai-tts.sh" "$BRIEF_TEXT" "$AUDIO_OUT" 2>/dev/null; then
   TTS_OK=true
-  echo "  TTS: CSM audio generated"
+  echo "  TTS: OpenAI audio generated"
 elif echo "$BRIEF_TEXT" | bash "$WORKSPACE/scripts/tts/minimax-tts-to-opus.sh" --out "$AUDIO_OUT" 2>/dev/null; then
   TTS_OK=true
   echo "  TTS: MiniMax fallback audio generated"
