@@ -81,24 +81,51 @@ def tg_send(text):
     except Exception:
         pass
 
-def claude_complete(system_prompt, user_content):
-    full_prompt = f"{system_prompt}\n\n---\n\n{user_content}"
+def call_claude(prompt, model):
     tmp = tempfile.NamedTemporaryFile(suffix='.txt', delete=False, mode='w')
-    tmp.write(full_prompt)
+    tmp.write(prompt)
     tmp.close()
     try:
         env = dict(os.environ)
         env.pop('CLAUDECODE', None)
+        env.pop('CLAUDE_CODE', None)
         result = subprocess.run(
-            ['claude', '--print', '--model', 'claude-opus-4-6', '--dangerously-skip-permissions'],
+            ['claude', '--print', '--model', model, '--dangerously-skip-permissions'],
             stdin=open(tmp.name), capture_output=True, text=True, timeout=120, env=env
         )
-        return result.stdout.strip() or result.stderr.strip() or ''
+        return result.stdout.strip() or ''
     except Exception as e:
-        print(f"  [warn] Claude call failed: {e}")
+        print(f"  [warn] Claude ({model}) call failed: {e}")
         return ''
     finally:
         os.unlink(tmp.name)
+
+def call_gpt4o(prompt, temperature=0.7):
+    openai_key = os.environ.get('OPENAI_API_KEY', '')
+    if not openai_key:
+        return ''
+    try:
+        import urllib.request as _req
+        payload = json.dumps({
+            'model': 'gpt-4o',
+            'messages': [{'role': 'user', 'content': prompt}],
+            'temperature': temperature,
+        }).encode()
+        req = _req.Request(
+            'https://api.openai.com/v1/chat/completions',
+            data=payload,
+            headers={'Authorization': f'Bearer {openai_key}',
+                     'Content-Type': 'application/json'},
+        )
+        with _req.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read())
+            return data['choices'][0]['message']['content'].strip()
+    except Exception as e:
+        print(f"  [warn] GPT-4o call failed: {e}")
+        return ''
+
+def claude_complete(system_prompt, user_content):
+    return call_claude(f"{system_prompt}\n\n---\n\n{user_content}", 'claude-opus-4-6')
 
 def extract_meeting_name(subject):
     gemini_match = re.match(r'^Notes:\s*"(.+?)"', subject)
@@ -299,9 +326,90 @@ for name_key, mtg in meetings.items():
 ## Notes ({len(chunks)} source(s) combined)
 {merged_transcript}"""
 
-    analysis = claude_complete(SYSTEM_PROMPT, user_content)
+    # ── Step 1: Haiku — extract facts from transcript ─────────────────────────
+    haiku_extract_prompt = f"""Extract a structured JSON summary from this meeting transcript. Return JSON only.
+{{
+  "attendees": ["names mentioned"],
+  "decisions_made": ["list of concrete decisions"],
+  "action_items": [{{"who": "name", "what": "task", "by_when": "date or null"}}],
+  "numbers_mentioned": ["revenue, dates, percentages, budgets"],
+  "blockers_raised": ["issues or concerns raised"],
+  "sentiment_moments": ["notable emotional moments — positive or negative"],
+  "open_questions": ["unresolved questions"],
+  "next_meeting": "date or null"
+}}
+
+{user_content}"""
+
+    extraction_raw = call_claude(haiku_extract_prompt, 'claude-haiku-4-5-20251001')
+    extraction_clean = extraction_raw.strip()
+    if extraction_clean.startswith('```'):
+        extraction_clean = extraction_clean.split('\n', 1)[1].rsplit('```', 1)[0].strip()
+
+    # ── Step 2: Opus — strategic analysis ─────────────────────────────────────
+    opus_prompt = f"""{SYSTEM_PROMPT}
+
+---
+
+{user_content}
+
+---
+
+## Structured extraction (by Haiku)
+{extraction_clean}
+
+Provide your deep strategic analysis of this meeting."""
+
+    opus_analysis = call_claude(opus_prompt, 'claude-opus-4-6')
+    if not opus_analysis:
+        opus_analysis = '(Opus analysis unavailable)'
+
+    # ── Step 3: GPT-4o — second opinion ───────────────────────────────────────
+    second_opinion_prompt = f"""Claude Opus has analysed a client meeting for an AI startup founder.
+
+Meeting: {meeting_name}
+Client context: {client_key or 'unknown'}
+
+Opus concluded:
+{opus_analysis}
+
+Extracted facts:
+{extraction_clean}
+
+Review Opus's analysis as an independent model. What did it get right? What did it miss
+or weight differently? Any risks or opportunities Opus didn't surface? 2 short paragraphs."""
+
+    second_opinion = call_gpt4o(second_opinion_prompt)
+
+    # ── Step 4: GPT-4o — write the final Telegram debrief ─────────────────────
+    debrief_prompt = f"""You are writing a post-meeting debrief for Josh Burton, founder of Amalfi AI.
+Two AI models have analysed this meeting. Synthesise into a sharp, actionable Telegram message.
+
+Rules:
+- Address Josh directly ("you", "your")
+- Lead with the most important thing he needs to know or do
+- Where Opus and GPT-4o agree, state it clearly
+- Where they differ, briefly surface both
+- Concrete action items with owners
+- HTML bold for section headers
+- Under 400 words. Punchy paragraphs, no bullet walls.
+
+## Meeting: {meeting_name}
+## Opus analysis
+{opus_analysis}
+
+## Second opinion
+{second_opinion if second_opinion else '(unavailable — Opus analysis only)'}
+
+## Extracted facts
+{extraction_clean}
+
+Write the debrief now."""
+
+    analysis = call_gpt4o(debrief_prompt, temperature=0.65)
     if not analysis:
-        analysis = '_(Analysis unavailable — Claude call failed)_'
+        # Fallback to Opus-only if GPT-4o failed
+        analysis = opus_analysis or '_(Analysis unavailable)_'
 
     # Send — split if over Telegram limit
     if len(analysis) <= 4000:

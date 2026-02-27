@@ -28,14 +28,56 @@ log "=== Weekly memory digest ==="
 export KEY SUPABASE_URL BOT_TOKEN CHAT_ID WS GPT_MODEL
 
 python3 - <<'PY'
-import os, json, datetime, urllib.request, sys
+import os, json, datetime, urllib.request, subprocess, tempfile, sys
 
 KEY          = os.environ['KEY']
 SUPABASE_URL = os.environ['SUPABASE_URL']
 BOT_TOKEN    = os.environ.get('BOT_TOKEN', '')
 CHAT_ID      = os.environ.get('CHAT_ID', '1140320036')
-GPT_MODEL    = os.environ.get('GPT_MODEL', 'gpt-4o')
 OPENAI_KEY   = os.environ.get('OPENAI_API_KEY', '')
+
+# ── Model helpers ─────────────────────────────────────────────────────────────
+
+def call_claude(prompt, model):
+    """Call a Claude model via CLI. Returns text output."""
+    env = {k: v for k, v in os.environ.items() if k not in ('CLAUDECODE', 'CLAUDE_CODE')}
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, prefix='/tmp/wmd-')
+    tmp.write(prompt)
+    tmp.close()
+    try:
+        r = subprocess.run(
+            ['claude', '--print', '--model', model, '--dangerously-skip-permissions'],
+            stdin=open(tmp.name), capture_output=True, text=True, timeout=120, env=env,
+        )
+        return r.stdout.strip()
+    except Exception as e:
+        print(f"  [warn] Claude ({model}) call failed: {e}", file=sys.stderr)
+        return ''
+    finally:
+        os.unlink(tmp.name)
+
+def call_gpt4o(prompt, temperature=0.7):
+    """Call GPT-4o via OpenAI API. Returns text output."""
+    if not OPENAI_KEY:
+        return ''
+    try:
+        payload = json.dumps({
+            'model': 'gpt-4o',
+            'messages': [{'role': 'user', 'content': prompt}],
+            'temperature': temperature,
+        }).encode()
+        req = urllib.request.Request(
+            'https://api.openai.com/v1/chat/completions',
+            data=payload,
+            headers={'Authorization': f'Bearer {OPENAI_KEY}',
+                     'Content-Type': 'application/json'},
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read())
+            return data['choices'][0]['message']['content'].strip()
+    except Exception as e:
+        print(f"  [warn] GPT-4o call failed: {e}", file=sys.stderr)
+        return ''
 
 now     = datetime.datetime.now(datetime.timezone.utc)
 week_ago = (now - datetime.timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -162,67 +204,130 @@ Most active hour: {peak_hour_sast}:00 SAST ({peak_hour_utc}:00 UTC)
 Most active day: {peak_day}
 Email approval rate: {approval_rate}%"""
 
-# ── Build Haiku prompt ─────────────────────────────────────────────────────────
-
 memories_text = json.dumps([
     {'agent': m['agent'], 'type': m['memory_type'],
      'content': m['content'], 'confidence': m['confidence']}
     for m in learned_memories
 ], indent=2) if learned_memories else '[]'
-
 raw_obs = user_model.get('raw_observations') or []
 
-prompt = f"""You are writing a weekly intelligence report for Josh — the founder of Amalfi AI.
-Based on one week of behavioural signals from his AI operating system, write him a concise,
-insightful personal report about what the system has learned about him this week.
-
-Write in second person ("You..."). Be specific, honest, and genuinely useful.
-Format as a Telegram message with HTML bold tags for headers.
-Keep it under 600 words. No bullet soup — use short punchy paragraphs.
-
-## Signal stats
+raw_data_block = f"""## Stats
 {stats_summary}
 
-## New agent memories learned this week (confidence >= 0.6)
+## Newly learned patterns (confidence >= 0.6)
 {memories_text}
 
-## Raw observations logged
+## Raw observations
 {json.dumps(raw_obs[-10:], indent=2)}
 
-## Terminal session topics (sample)
-{json.dumps(session_texts[:8], indent=2)}
+## Terminal session topics
+{json.dumps(session_texts[:10], indent=2)}
 
-## Telegram messages (sample)
-{json.dumps(message_texts[:8], indent=2)}
+## Telegram messages
+{json.dumps(message_texts[:10], indent=2)}
 
-## Voice note transcripts (sample)
-{json.dumps(voice_texts[:5], indent=2)}
+## Voice notes
+{json.dumps(voice_texts[:6], indent=2)}"""
 
-Write the report now. Start with a short punchy title line, then the insights."""
+# ── Step 1: Haiku — structured extraction from raw signals ────────────────────
 
-# ── Call GPT-4o (coach/personal layer) ────────────────────────────────────────
+print("  Step 1: Haiku extraction...", flush=True)
+haiku_prompt = f"""Extract a clean structured summary from this week's behavioural signals.
+Return JSON only — no explanation.
 
-report = ''
-if not OPENAI_KEY:
-    print("  [warn] OPENAI_API_KEY not set — falling back to stats only", file=sys.stderr)
-else:
-    try:
-        payload = json.dumps({
-            'model': GPT_MODEL,
-            'messages': [{'role': 'user', 'content': prompt}],
-            'temperature': 0.75,
-        }).encode()
-        req = urllib.request.Request(
-            'https://api.openai.com/v1/chat/completions',
-            data=payload,
-            headers={'Authorization': f'Bearer {OPENAI_KEY}',
-                     'Content-Type': 'application/json'},
-        )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read())
-            report = data['choices'][0]['message']['content'].strip()
-    except Exception as e:
-        print(f"  [warn] GPT-4o call failed: {e}", file=sys.stderr)
+{{
+  "peak_hours_sast": ["list of HH:00 strings"],
+  "most_active_day": "day name",
+  "least_active_day": "day name",
+  "top_topics": ["extracted from terminal + telegram text"],
+  "client_mentions": {{"slug": count}},
+  "voice_vs_text": "X voice / Y text messages",
+  "email_approval_rate": "X%",
+  "tasks_completed": N,
+  "build_vs_manage_ratio": "X% build / Y% manage (terminal vs telegram)",
+  "anomalies": ["anything unusual or notable"],
+  "recurring_themes": ["themes appearing across multiple signal types"]
+}}
+
+{raw_data_block}"""
+
+extraction_raw = call_claude(haiku_prompt, 'claude-haiku-4-5-20251001')
+# Strip markdown if present
+extraction_clean = extraction_raw.strip()
+if extraction_clean.startswith('```'):
+    extraction_clean = extraction_clean.split('\n', 1)[1].rsplit('```', 1)[0].strip()
+print(f"  Extraction: {extraction_clean[:120]}...", flush=True)
+
+# ── Step 2: Opus — deep strategic analysis ────────────────────────────────────
+
+print("  Step 2: Opus analysis...", flush=True)
+opus_prompt = f"""You are analysing the behavioural data of Josh Burton, founder of Amalfi AI.
+One week of signals from his AI operating system has been extracted and summarised.
+
+Your job: deep, honest strategic analysis. What do these patterns reveal about his work habits,
+focus, energy distribution, momentum, and blind spots? What's healthy, what's concerning?
+Reference specific data points. Be direct — this is for Josh's eyes only.
+500 words max. Analytical prose, not bullet points.
+
+## Structured extraction (by Haiku)
+{extraction_clean}
+
+## Living user model
+{json.dumps({'communication': user_model.get('communication', {}), 'goals': user_model.get('goals', {}), 'preferences': user_model.get('preferences', {}), 'flags': user_model.get('flags', {})}, indent=2)}
+
+## Raw signals
+{raw_data_block}"""
+
+opus_analysis = call_claude(opus_prompt, 'claude-opus-4-6')
+print(f"  Opus: {len(opus_analysis)} chars", flush=True)
+
+# ── Step 3: GPT-4o — second opinion ──────────────────────────────────────────
+
+print("  Step 3: GPT-4o second opinion...", flush=True)
+second_opinion_prompt = f"""Claude Opus has analysed one week of behavioural data for an AI startup founder.
+
+Opus concluded:
+{opus_analysis}
+
+Raw data summary:
+{extraction_clean}
+
+As an independent model with different training, review this analysis.
+What did Opus get right? What did it miss, overweight, or interpret differently?
+What would you surface that Opus didn't? Be specific — 2 to 3 short paragraphs."""
+
+second_opinion = call_gpt4o(second_opinion_prompt)
+print(f"  Second opinion: {len(second_opinion)} chars", flush=True)
+
+# ── Step 4: GPT-4o — write the final personal digest ─────────────────────────
+
+print("  Step 4: GPT-4o final digest...", flush=True)
+digest_prompt = f"""You are writing Josh's weekly intelligence report from his AI operating system.
+You have two independent analyses of his week. Your job: synthesise them into one personal,
+readable report addressed directly to Josh.
+
+Rules:
+- Address him as "you" throughout
+- Lead with the single most important insight
+- Where Opus and GPT-4o agree, state it with confidence
+- Where they differ, surface both perspectives briefly
+- Be warm, honest, and specific — no generic startup founder platitudes
+- HTML bold tags for section headers
+- Under 500 words
+- No bullet lists — short punchy paragraphs only
+
+## Opus analysis
+{opus_analysis}
+
+## Second opinion (GPT-4o)
+{second_opinion}
+
+## Hard stats
+{stats_summary}
+
+Write the digest now."""
+
+report = call_gpt4o(digest_prompt, temperature=0.75)
 
 if not report:
     # Fallback: send raw stats
