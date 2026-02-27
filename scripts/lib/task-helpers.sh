@@ -73,7 +73,23 @@ req = urllib.request.Request(
 try:
     with urllib.request.urlopen(req, timeout=10) as r:
         rows = json.loads(r.read())
-        print(rows[0]['id'])
+        new_id = rows[0]['id']
+        print(new_id)
+    # Log task_created signal
+    try:
+        sig = urllib.request.Request(
+            f"{URL}/rest/v1/interaction_log",
+            data=json.dumps({'actor': 'system', 'user_id': 'josh',
+                             'signal_type': 'task_created',
+                             'signal_data': {'title': title, 'agent': agent,
+                                             'priority': pri, 'task_id': new_id}}).encode(),
+            headers={"apikey": KEY, "Authorization": f"Bearer {KEY}",
+                     "Content-Type": "application/json", "Prefer": "return=minimal"},
+            method="POST",
+        )
+        urllib.request.urlopen(sig, timeout=5)
+    except Exception:
+        pass
 except Exception:
     print("")
 PYEOF
@@ -147,6 +163,21 @@ req = urllib.request.Request(
 )
 try:
     urllib.request.urlopen(req, timeout=10)
+    # Log task_completed signal
+    try:
+        sig = urllib.request.Request(
+            f"{URL}/rest/v1/interaction_log",
+            data=json.dumps({'actor': 'system', 'user_id': 'josh',
+                             'signal_type': 'task_completed',
+                             'signal_data': {'task_id': tid,
+                                             'note': note[:200] if note else ''}}).encode(),
+            headers={"apikey": KEY, "Authorization": f"Bearer {KEY}",
+                     "Content-Type": "application/json", "Prefer": "return=minimal"},
+            method="POST",
+        )
+        urllib.request.urlopen(sig, timeout=5)
+    except Exception:
+        pass
 except Exception:
     pass
 PYEOF

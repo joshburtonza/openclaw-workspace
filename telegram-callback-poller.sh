@@ -889,6 +889,14 @@ for u in updates:
                     else '[Voice message received but transcription returned empty]'
                 )
 
+                # Log to adaptive memory
+                if transcript:
+                    log_signal('josh', 'josh', 'voice_message_sent', {
+                        'transcript': transcript[:500],
+                        'language':   detected_lang or 'en',
+                        'duration_secs': voice.get('duration', 0),
+                    })
+
             subprocess.Popen([
                 'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
                 str(chat_id), user_text, group_history_file, 'audio',
@@ -1058,7 +1066,7 @@ for u in updates:
 
         # Log free-text message for adaptive memory — captures Josh's topics and patterns
         log_signal('josh', 'josh', 'message_sent', {
-            'text': text[:300],
+            'text': text[:500],
             'length': len(text),
             'hour_utc': __import__('datetime').datetime.now(__import__('datetime').timezone.utc).hour,
         })
