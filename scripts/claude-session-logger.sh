@@ -10,6 +10,10 @@ WS="/Users/henryburton/.openclaw/workspace-anthropic"
 ENV_FILE="$WS/.env.scheduler"
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
 
+# Read hook JSON from stdin into a bash var FIRST — heredoc wins stdin so we can't read in Python
+HOOK_JSON=$(cat)
+export HOOK_JSON
+
 python3 - <<'PY'
 import sys, json, os, urllib.request, datetime
 
@@ -20,7 +24,7 @@ if not KEY:
     sys.exit(0)
 
 try:
-    hook_data = json.loads(sys.stdin.read())
+    hook_data = json.loads(os.environ.get('HOOK_JSON', '{}'))
 except Exception:
     sys.exit(0)
 
@@ -34,7 +38,8 @@ transcript_path = hook_data.get('transcript_path', '')
 if not transcript_path or not os.path.exists(transcript_path):
     sys.exit(0)
 
-# Find the last user message in the JSONL transcript
+# Find the last human text message in the JSONL transcript
+# User entries can be: string content, list of text blocks, or list of tool_results (skip those)
 user_text = ''
 try:
     with open(transcript_path, 'r') as f:
@@ -44,17 +49,20 @@ try:
                 continue
             try:
                 entry = json.loads(line)
-                if entry.get('type') == 'user':
-                    msg = entry.get('message', {})
-                    content = msg.get('content', '')
-                    if isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and block.get('type') == 'text':
-                                candidate = block.get('text', '').strip()
-                                if candidate:
-                                    user_text = candidate
-                    elif isinstance(content, str) and content.strip():
-                        user_text = content.strip()
+                if entry.get('type') != 'user':
+                    continue
+                content = entry.get('message', {}).get('content', '')
+                # String content — direct human message
+                if isinstance(content, str) and content.strip():
+                    user_text = content.strip()
+                # List content — find text blocks, skip tool_results
+                elif isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get('type') == 'text':
+                            candidate = block.get('text', '').strip()
+                            if candidate:
+                                user_text = candidate
+                            break
             except Exception:
                 continue
 except Exception:
@@ -63,7 +71,6 @@ except Exception:
 if not user_text:
     sys.exit(0)
 
-# Truncate and log
 now = datetime.datetime.now(datetime.timezone.utc)
 payload = json.dumps({
     'actor':       'josh',
