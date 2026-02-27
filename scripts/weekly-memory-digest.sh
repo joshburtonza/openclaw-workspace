@@ -16,7 +16,7 @@ KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
 LOG="$WS/out/weekly-memory-digest.log"
-HAIKU_MODEL="claude-haiku-4-5-20251001"
+GPT_MODEL="gpt-4o"
 
 mkdir -p "$WS/out"
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
@@ -25,16 +25,17 @@ if [[ -z "$KEY" ]]; then log "ERROR: SUPABASE_SERVICE_ROLE_KEY not set"; exit 1;
 
 log "=== Weekly memory digest ==="
 
-export KEY SUPABASE_URL BOT_TOKEN CHAT_ID WS HAIKU_MODEL
+export KEY SUPABASE_URL BOT_TOKEN CHAT_ID WS GPT_MODEL
 
 python3 - <<'PY'
-import os, json, subprocess, datetime, urllib.request, tempfile, sys
+import os, json, datetime, urllib.request, sys
 
 KEY          = os.environ['KEY']
 SUPABASE_URL = os.environ['SUPABASE_URL']
 BOT_TOKEN    = os.environ.get('BOT_TOKEN', '')
 CHAT_ID      = os.environ.get('CHAT_ID', '1140320036')
-HAIKU_MODEL  = os.environ['HAIKU_MODEL']
+GPT_MODEL    = os.environ.get('GPT_MODEL', 'gpt-4o')
+OPENAI_KEY   = os.environ.get('OPENAI_API_KEY', '')
 
 now     = datetime.datetime.now(datetime.timezone.utc)
 week_ago = (now - datetime.timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -199,24 +200,29 @@ Keep it under 600 words. No bullet soup — use short punchy paragraphs.
 
 Write the report now. Start with a short punchy title line, then the insights."""
 
-# ── Call Haiku ────────────────────────────────────────────────────────────────
+# ── Call GPT-4o (coach/personal layer) ────────────────────────────────────────
 
-env = {k: v for k, v in os.environ.items() if k not in ('CLAUDECODE', 'CLAUDE_CODE')}
-tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, prefix='/tmp/wmd-')
-tmp.write(prompt)
-tmp.close()
-
-try:
-    r = subprocess.run(
-        ['claude', '--print', '--model', HAIKU_MODEL, '--dangerously-skip-permissions'],
-        stdin=open(tmp.name), capture_output=True, text=True, timeout=90, env=env,
-    )
-    report = r.stdout.strip()
-except Exception as e:
-    report = ''
-    print(f"  [warn] Haiku call failed: {e}", file=sys.stderr)
-finally:
-    os.unlink(tmp.name)
+report = ''
+if not OPENAI_KEY:
+    print("  [warn] OPENAI_API_KEY not set — falling back to stats only", file=sys.stderr)
+else:
+    try:
+        payload = json.dumps({
+            'model': GPT_MODEL,
+            'messages': [{'role': 'user', 'content': prompt}],
+            'temperature': 0.75,
+        }).encode()
+        req = urllib.request.Request(
+            'https://api.openai.com/v1/chat/completions',
+            data=payload,
+            headers={'Authorization': f'Bearer {OPENAI_KEY}',
+                     'Content-Type': 'application/json'},
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read())
+            report = data['choices'][0]['message']['content'].strip()
+    except Exception as e:
+        print(f"  [warn] GPT-4o call failed: {e}", file=sys.stderr)
 
 if not report:
     # Fallback: send raw stats
