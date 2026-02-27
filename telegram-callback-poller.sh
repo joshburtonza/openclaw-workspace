@@ -1032,24 +1032,36 @@ for u in updates:
 
     if text_lower.startswith('/remind'):
         handle_remind(chat_id, text)
+        log_signal('josh', 'josh', 'command_used', {'command': 'remind', 'text': text[:120]})
 
     elif text_lower.startswith('/newlead'):
         handle_newlead(chat_id, text)
+        log_signal('josh', 'josh', 'command_used', {'command': 'newlead', 'text': text[:120]})
 
     elif text_lower.startswith('/ooo'):
         handle_ooo(chat_id, text)
+        log_signal('josh', 'josh', 'command_used', {'command': 'ooo', 'text': text[:120]})
 
     elif text_lower.startswith('/available'):
         handle_available(chat_id)
+        log_signal('josh', 'josh', 'command_used', {'command': 'available'})
 
     elif text_lower.startswith('/help') or text_lower == '/start':
         handle_help(chat_id)
 
     elif text_lower.startswith('research:'):
         handle_research(chat_id, text)
+        log_signal('josh', 'josh', 'command_used', {'command': 'research', 'text': text[:200]})
 
     else:
         import time as _time
+
+        # Log free-text message for adaptive memory — captures Josh's topics and patterns
+        log_signal('josh', 'josh', 'message_sent', {
+            'text': text[:300],
+            'length': len(text),
+            'hour_utc': __import__('datetime').datetime.now(__import__('datetime').timezone.utc).hour,
+        })
 
         pending_file = f"{WS}/tmp/telegram_pending_adjust_{chat_id}"
         if os.path.exists(pending_file):
