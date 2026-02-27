@@ -34,7 +34,7 @@ SAST_DOW=$(TZ=Africa/Johannesburg date +%u)
 log "=== Alex run (SAST $(TZ=Africa/Johannesburg date '+%H:%M %a')) ==="
 TASK_ID=$(task_create "Alex outreach run" "Selecting and emailing next lead in sequence" "Alex" "normal")
 
-export SUPABASE_URL SUPABASE_KEY FROM_ACCOUNT BOT_TOKEN CHAT_ID MODEL
+export SUPABASE_URL SUPABASE_KEY FROM_ACCOUNT BOT_TOKEN CHAT_ID OPENAI_API_KEY
 
 python3 - <<'PY'
 import os, sys, json, subprocess, datetime, time, re
@@ -46,7 +46,6 @@ KEY          = os.environ['SUPABASE_KEY']
 FROM_ACCOUNT = os.environ['FROM_ACCOUNT']
 BOT_TOKEN    = os.environ['BOT_TOKEN']
 CHAT_ID      = os.environ['CHAT_ID']
-MODEL        = os.environ['MODEL']
 
 # ── Supabase helpers ───────────────────────────────────────────────────────────
 

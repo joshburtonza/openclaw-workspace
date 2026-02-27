@@ -12,7 +12,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 unset CLAUDECODE
 
 KEY="${SUPABASE_SERVICE_ROLE_KEY}"
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 DATE=$(TZ=Africa/Johannesburg date '+%Y-%m-%d')
 DOW=$(TZ=Africa/Johannesburg date '+%A, %B %-d, %Y')
 OUT_FILE="$WORKSPACE/memory/${DATE}.md"

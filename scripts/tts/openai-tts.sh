@@ -1,5 +1,5 @@
 #!/bin/bash
-# openai-tts.sh — OpenAI TTS (tts-1-hd, nova voice)
+# openai-tts.sh — OpenAI TTS (gpt-4o-mini-tts, nova voice)
 #
 # Usage:
 #   openai-tts.sh "Text to speak" /output/path.opus
@@ -48,7 +48,7 @@ HTTP_STATUS=$(curl -sf \
   -H "Authorization: Bearer $OPENAI_KEY" \
   -H "Content-Type: application/json" \
   -d "{
-    \"model\": \"tts-1-hd\",
+    \"model\": \"gpt-4o-mini-tts\",
     \"input\": $(echo "$TEXT" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))'),
     \"voice\": \"nova\",
     \"response_format\": \"opus\"

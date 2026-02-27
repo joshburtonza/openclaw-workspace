@@ -16,7 +16,7 @@ fi
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 
 if [[ -z "$BOT_TOKEN" ]]; then

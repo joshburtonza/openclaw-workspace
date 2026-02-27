@@ -11,7 +11,7 @@ DUE="${3}"
 ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-CHAT_ID="1140320036"
+CHAT_ID="${AOS_TELEGRAM_OWNER_CHAT_ID:-1140320036}"
 
 # Build message
 if [ -n "$DUE" ]; then

@@ -11,7 +11,7 @@ source "$ENV_FILE"
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-export SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+export SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 export SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY}"
 export BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
 _CHAT_ID_FILE="$WORKSPACE/tmp/josh_private_chat_id"

@@ -16,7 +16,8 @@ if [[ -z "$PROMPT_FILE" || ! -f "$PROMPT_FILE" ]]; then
   exit 1
 fi
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 

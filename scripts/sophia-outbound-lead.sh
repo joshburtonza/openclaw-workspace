@@ -7,11 +7,12 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 API_KEY="${SUPABASE_SERVICE_ROLE_KEY}"
 
 LEAD_ID="${1:-}"
@@ -96,11 +97,11 @@ echo "[sophia-outbound] Slot: $DISPLAY_DATE at 10am SAST ($START_TIME)"
 
 # ── Create Google Meet ────────────────────────────────────────────────────────
 
-export MEET_JSON=$(gog calendar create "josh@amalfiai.com" \
+export MEET_JSON=$(gog calendar create "${AOS_CALENDAR_ACCOUNT:-josh@amalfiai.com}" \
   --summary "Discovery Call with ${FULL_NAME}" \
   --from "$START_TIME" \
   --to "$END_TIME" \
-  --attendees "josh@amalfiai.com" \
+  --attendees "${AOS_CALENDAR_ACCOUNT:-josh@amalfiai.com}" \
   --with-meet \
   --json 2>/dev/null)
 
@@ -179,7 +180,7 @@ SEND_OUT=$(python3 - <<'PY'
 import subprocess, os, json
 result = subprocess.run([
     'gog', 'gmail', 'send',
-    '--account', 'sophia@amalfiai.com',
+    '--account', '${AOS_SOPHIA_EMAIL:-sophia@amalfiai.com}',
     '--to',      os.environ['LEAD_EMAIL'],
     '--subject', os.environ['SUBJECT'],
     '--body-html', os.environ['BODY_HTML'],

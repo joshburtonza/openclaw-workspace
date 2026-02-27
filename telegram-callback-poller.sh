@@ -31,7 +31,7 @@ trap 'rm -f "$PIDFILE"; exit 0' EXIT INT TERM
 ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 ANON_KEY="${SUPABASE_ANON_KEY:-}"
 SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 
@@ -124,10 +124,11 @@ for _f in glob.glob(f"{WS_ROOT}/tmp/tg-photo-*") + glob.glob(f"{WS_ROOT}/tmp/tg-
     except Exception:
         pass
 
-SUPABASE_URL = os.environ['SUPABASE_URL']
-ANON_KEY     = os.environ['ANON_KEY']
-SERVICE_KEY  = os.environ['SERVICE_KEY']
-BOT_TOKEN    = os.environ['BOT_TOKEN']
+SUPABASE_URL     = os.environ['SUPABASE_URL']
+ANON_KEY         = os.environ['ANON_KEY']
+SERVICE_KEY      = os.environ['SERVICE_KEY']
+BOT_TOKEN        = os.environ['BOT_TOKEN']
+SALAH_CHAT_ID    = os.environ.get('TELEGRAM_SALAH_CHAT_ID', '')
 
 def tg_send(chat_id, text):
     try:
@@ -258,6 +259,21 @@ def handle_ooo(chat_id, text):
     else:
         tg_send(chat_id, f"❌ Failed to set OOO: {result.stderr[:200]}")
 
+# ── Voice mode helpers ────────────────────────────────────────────────────────
+def get_reply_mode(chat_id):
+    """Return 'audio' if voice mode is on for this chat, else 'text'."""
+    flag = f"{WS_ROOT}/tmp/voice-mode-{chat_id}"
+    return 'audio' if os.path.exists(flag) else 'text'
+
+def handle_voice_toggle(chat_id):
+    flag = f"{WS_ROOT}/tmp/voice-mode-{chat_id}"
+    if os.path.exists(flag):
+        os.remove(flag)
+        tg_send(chat_id, "🔇 Voice mode <b>OFF</b> — back to text replies.")
+    else:
+        open(flag, 'w').close()
+        tg_send(chat_id, "🔊 Voice mode <b>ON</b> — I'll reply with audio.\n\nSend <code>/voice</code> again to switch back to text.")
+
 # ── Handle /available command ─────────────────────────────────────────────────
 def handle_available(chat_id):
     result = subprocess.run(
@@ -270,6 +286,205 @@ def handle_available(chat_id):
         tg_send(chat_id, "✅ <b>OOO mode OFF</b>\nSophia is back to normal operations.")
     else:
         tg_send(chat_id, f"❌ Failed to clear OOO: {result.stderr[:200]}")
+
+# ── Handle /agents command ────────────────────────────────────────────────────
+def handle_agents(chat_id, text):
+    """
+    /agents                → show all agents with enabled/disabled status
+    /agents enable sophia  → enable Sophia
+    /agents disable sophia → disable Sophia
+    """
+    AGENT_KEYS = {
+        'sophia':          ('agent_enabled_sophia',       'Sophia CSM'),
+        'alex':            ('agent_enabled_alex',         'Alex Outreach'),
+        'task_worker':     ('agent_enabled_task_worker',  'Task Worker'),
+        'meet':            ('agent_enabled_meet_intel',   'Meet Intel'),
+        'morning':         ('agent_enabled_morning_brief','Morning Brief'),
+        'research':        ('agent_enabled_research_digest','Research Digest'),
+        'monitor':         ('agent_enabled_monitor',      'System Monitor'),
+    }
+
+    parts = text.strip().split()
+    action = parts[1].lower() if len(parts) > 1 else 'list'
+    target = parts[2].lower() if len(parts) > 2 else ''
+
+    if action in ('enable', 'disable'):
+        if not target:
+            tg_send(chat_id, "Usage: /agents enable <name> or /agents disable <name>\nNames: " + ', '.join(AGENT_KEYS.keys()))
+            return
+        matched = None
+        for slug, (config_key, display) in AGENT_KEYS.items():
+            if target in slug or slug.startswith(target):
+                matched = (slug, config_key, display)
+                break
+        if not matched:
+            tg_send(chat_id, f"Unknown agent: {target}\nOptions: {', '.join(AGENT_KEYS.keys())}")
+            return
+        slug, config_key, display = matched
+        new_val = 'true' if action == 'enable' else 'false'
+        try:
+            resp = requests.post(
+                f"{SUPABASE_URL}/rest/v1/system_config",
+                headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}',
+                         'Content-Type': 'application/json',
+                         'Prefer': 'resolution=merge-duplicates,return=minimal'},
+                json={'key': config_key, 'value': new_val}, timeout=10
+            )
+            icon = '✅' if action == 'enable' else '⏸'
+            tg_send(chat_id, f"{icon} <b>{display} {action}d</b>\nTakes effect within 5 minutes.")
+        except Exception as e:
+            tg_send(chat_id, f"❌ Failed: {e}")
+        return
+
+    # Default: list all agents with status
+    try:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/system_config?key=like.agent_enabled_*&select=key,value",
+            headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}'}, timeout=10
+        )
+        rows = {r['key']: r['value'] for r in (resp.json() if resp.ok else [])}
+    except Exception:
+        rows = {}
+
+    lines = ['<b>Agent Status</b>\n']
+    for slug, (config_key, display) in AGENT_KEYS.items():
+        val = rows.get(config_key, 'true')
+        try: enabled = json.loads(val)
+        except Exception: enabled = (val != 'false')
+        icon = '🟢' if enabled else '🔴'
+        lines.append(f"{icon} <b>{display}</b>")
+
+    lines.append('\n<i>Toggle: /agents enable sophia</i>')
+    lines.append('<i>or: /agents disable alex</i>')
+    tg_send(chat_id, '\n'.join(lines))
+
+# ── Handle /debt command ──────────────────────────────────────────────────────
+def handle_debt(chat_id, text):
+    """
+    /debt                              → show summary
+    /debt Name TotalAmount [Remaining] [Monthly]
+    Example: /debt Bond 850000 820000 9200
+    """
+    import re as _re
+    raw = _re.sub(r'^/debt\s*', '', text, flags=_re.IGNORECASE).strip()
+
+    if not raw:
+        try:
+            resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/debt_entries?select=name,total_amount,remaining_amount,monthly_payment&order=remaining_amount.desc",
+                headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}'}, timeout=10
+            )
+            rows = resp.json()
+        except Exception:
+            rows = []
+        if not rows:
+            tg_send(chat_id,
+                "📊 <b>Debt Tracker</b>\n\nNo entries yet.\n\n"
+                "Add one:\n<code>/debt Name TotalAmount Remaining Monthly</code>\n"
+                "Example: <code>/debt Bond 850000 820000 9200</code>"
+            )
+            return
+        total_rem     = sum(r.get('remaining_amount', 0) for r in rows)
+        total_monthly = sum(r.get('monthly_payment', 0) for r in rows)
+        lines = []
+        for r in rows:
+            rem  = r.get('remaining_amount', 0)
+            tot  = r.get('total_amount', 1) or 1
+            pct  = round((1 - rem/tot) * 100)
+            mths = round(rem / r['monthly_payment']) if r.get('monthly_payment', 0) > 0 else None
+            bar  = '█' * (pct // 10) + '░' * (10 - pct // 10)
+            eta  = f" · {mths}mo left" if mths else ''
+            lines.append(
+                f"<b>{r['name']}</b>\n"
+                f"R{rem:,.0f} remaining · R{r.get('monthly_payment',0):,.0f}/mo{eta}\n"
+                f"<code>{bar}</code> {pct}%"
+            )
+        tg_send(chat_id,
+            "📊 <b>Debt Summary</b>\n\n" + "\n\n".join(lines) +
+            f"\n\n<b>Total: R{total_rem:,.0f}</b> · R{total_monthly:,.0f}/mo obligation"
+        )
+        return
+
+    parts = _re.split(r'\s+', raw)
+    numbers, name_parts = [], []
+    for p in parts:
+        clean = p.replace(',','').replace('R','').replace('r','').strip('"\'')
+        try:
+            numbers.append(float(clean))
+        except ValueError:
+            if not numbers:
+                name_parts.append(p.strip('"\''))
+
+    name = ' '.join(name_parts) if name_parts else 'Unnamed debt'
+    if not numbers:
+        tg_send(chat_id, "❌ Include at least the total amount.\nExample: <code>/debt Bond 850000 820000 9200</code>")
+        return
+
+    total_amt     = numbers[0]
+    remaining_amt = numbers[1] if len(numbers) > 1 else total_amt
+    monthly_pay   = numbers[2] if len(numbers) > 2 else 0
+
+    try:
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/debt_entries",
+            headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}',
+                     'Content-Type': 'application/json', 'Prefer': 'return=representation'},
+            json={'name': name, 'total_amount': total_amt,
+                  'remaining_amount': remaining_amt, 'monthly_payment': monthly_pay},
+            timeout=10
+        )
+        if r.status_code in (200, 201):
+            mths = round(remaining_amt / monthly_pay) if monthly_pay > 0 else None
+            eta  = f" · paid off in ~{mths} months" if mths else ''
+            tg_send(chat_id,
+                f"✅ <b>{name}</b> added\n"
+                f"Total: R{total_amt:,.0f} · Remaining: R{remaining_amt:,.0f}\n"
+                f"Monthly: R{monthly_pay:,.0f}{eta}\n\nView all: <code>/debt</code>"
+            )
+        else:
+            tg_send(chat_id, f"❌ Failed to save (HTTP {r.status_code})")
+    except Exception as e:
+        tg_send(chat_id, f"❌ Error: {e}")
+
+# ── Handle /finances command ───────────────────────────────────────────────────
+def handle_finances(chat_id):
+    """Quick P&L snapshot: current month income + debt obligations."""
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=2)))
+    this_month = now.strftime('%Y-%m')
+    try:
+        inc_resp  = requests.get(
+            f"{SUPABASE_URL}/rest/v1/income_entries?month=eq.{this_month}&select=client,amount,status",
+            headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}'}, timeout=10
+        )
+        debt_resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/debt_entries?select=name,remaining_amount,monthly_payment",
+            headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}'}, timeout=10
+        )
+        income_rows = inc_resp.json() if inc_resp.ok else []
+        debt_rows   = debt_resp.json() if debt_resp.ok else []
+    except Exception:
+        income_rows, debt_rows = [], []
+
+    collected      = sum(r['amount'] for r in income_rows if r.get('status') == 'paid')
+    outstanding    = sum(r['amount'] for r in income_rows if r.get('status') != 'paid')
+    total_debt_rem = sum(r.get('remaining_amount', 0) for r in debt_rows)
+    total_monthly  = sum(r.get('monthly_payment', 0) for r in debt_rows)
+    net  = collected - total_monthly
+    sign = '+' if net >= 0 else ''
+    msg  = (
+        f"💰 <b>Finances — {now.strftime('%B %Y')}</b>\n\n"
+        f"<b>Income</b>\n"
+        f"  Collected:    R{collected:,.0f}\n"
+        f"  Outstanding:  R{outstanding:,.0f}\n\n"
+        f"<b>Debt</b>\n"
+        f"  Monthly payments: R{total_monthly:,.0f}\n"
+        f"  Total remaining:  R{total_debt_rem:,.0f}\n\n"
+        f"<b>Net (collected minus obligations): {sign}R{net:,.0f}</b>"
+    )
+    if not income_rows and not debt_rows:
+        msg += "\n\n<i>No data yet. Add debts with /debt, income entries via Mission Control.</i>"
+    tg_send(chat_id, msg)
 
 # ── Handle /remind command ────────────────────────────────────────────────────
 def handle_remind(chat_id, text):
@@ -407,6 +622,229 @@ def handle_remind(chat_id, text):
     except Exception as e:
         tg_send(chat_id, f'❌ Error saving reminder: {e}')
 
+# ── Handle /meet command ──────────────────────────────────────────────────────
+def handle_meet(chat_id, text):
+    """
+    Formats accepted (flexible NLP):
+      /meet tomorrow 10am Favlog kickoff ozayr@ambassadex.co.za farhaan@gmail.com
+      /meet friday 2pm Race Technik sync farhaan.surtie@gmail.com
+      /meet 2026-03-05 09:00 Onboarding call client@example.com
+    Emails (contain @) are separated from title words automatically.
+    Default duration: 1 hour. Timezone: SAST (UTC+2).
+    """
+    import datetime as _dt, re as _re, json as _json
+
+    raw = _re.sub(r'^/meet\s*', '', text, flags=_re.IGNORECASE).strip()
+    if not raw:
+        tg_send(chat_id,
+            "\U0001f4c5 <b>Schedule a Google Meet:</b>\n\n"
+            "/meet tomorrow 10am Favlog kickoff ozayr@example.com\n"
+            "/meet friday 2pm Race Technik sync farhaan@gmail.com\n"
+            "/meet 2026-03-05 09:00 Onboarding call client@example.com\n\n"
+            "Emails (containing @) are auto-detected. Everything else becomes the title."
+        )
+        return
+
+    SAST = _dt.timezone(_dt.timedelta(hours=2))
+    now  = _dt.datetime.now(SAST)
+    due  = None
+    rest = raw  # remaining text after datetime is parsed out
+
+    # ── Pattern: YYYY-MM-DD HH:MM ────────────────────────────────────────────
+    m = _re.match(r'^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})\s+(.*)$', raw, _re.IGNORECASE)
+    if m:
+        try:
+            d = _dt.date.fromisoformat(m.group(1))
+            due = _dt.datetime(d.year, d.month, d.day,
+                               int(m.group(2)), int(m.group(3)), 0, tzinfo=SAST)
+            rest = m.group(4).strip()
+        except ValueError:
+            pass
+
+    # ── Pattern: YYYY-MM-DD HAM/PM ────────────────────────────────────────────
+    if not due:
+        m = _re.match(r'^(\d{4}-\d{2}-\d{2})\s+(\d{1,2})\s*(am|pm)\s+(.*)$', raw, _re.IGNORECASE)
+        if m:
+            try:
+                d    = _dt.date.fromisoformat(m.group(1))
+                hour = int(m.group(2))
+                ampm = m.group(3).lower()
+                if ampm == 'pm' and hour != 12: hour += 12
+                elif ampm == 'am' and hour == 12: hour = 0
+                due  = _dt.datetime(d.year, d.month, d.day, hour, 0, 0, tzinfo=SAST)
+                rest = m.group(4).strip()
+            except ValueError:
+                pass
+
+    # ── Pattern: tomorrow HH:MM or tomorrow HAM/PM ───────────────────────────
+    if not due:
+        m = _re.match(r'^tomorrow\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+(.*)$', raw, _re.IGNORECASE)
+        if m:
+            hour   = int(m.group(1))
+            minute = int(m.group(2) or 0)
+            ampm   = m.group(3)
+            if ampm:
+                if ampm.lower() == 'pm' and hour != 12: hour += 12
+                elif ampm.lower() == 'am' and hour == 12: hour = 0
+            tmrw = now + _dt.timedelta(days=1)
+            due  = tmrw.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            rest = m.group(4).strip()
+
+    # ── Pattern: <dayname> HH:MM or <dayname> HAM/PM ─────────────────────────
+    if not due:
+        DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
+        m = _re.match(
+            r'^(' + '|'.join(DAYS) + r')\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+(.*)$',
+            raw, _re.IGNORECASE
+        )
+        if m:
+            day_name = m.group(1).lower()
+            hour     = int(m.group(2))
+            minute   = int(m.group(3) or 0)
+            ampm     = m.group(4)
+            if ampm:
+                if ampm.lower() == 'pm' and hour != 12: hour += 12
+                elif ampm.lower() == 'am' and hour == 12: hour = 0
+            target      = DAYS.index(day_name)
+            diff        = (target - now.weekday()) % 7 or 7
+            target_date = (now + _dt.timedelta(days=diff)).date()
+            due  = _dt.datetime(target_date.year, target_date.month, target_date.day,
+                                hour, minute, 0, tzinfo=SAST)
+            rest = m.group(5).strip()
+
+    if not due:
+        tg_send(chat_id,
+            f"\u274c Couldn't parse a date/time from: <code>{raw[:80]}</code>\n\n"
+            "Try:\n"
+            "/meet tomorrow 10am Title attendee@email.com\n"
+            "/meet friday 2pm Title attendee@email.com\n"
+            "/meet 2026-03-05 09:00 Title attendee@email.com"
+        )
+        return
+
+    # ── Split remainder into emails vs title words ────────────────────────────
+    words  = rest.split()
+    emails = [w for w in words if _re.search(r'@', w)]
+    title_words = [w for w in words if not _re.search(r'@', w)]
+    title = ' '.join(title_words).strip() or 'Meeting'
+
+    if not emails:
+        tg_send(chat_id,
+            "\u274c No attendee email found.\n\n"
+            "Include at least one email address in the command:\n"
+            "/meet tomorrow 10am Title client@example.com"
+        )
+        return
+
+    # ── Build RFC3339 timestamps (SAST = UTC+2) ───────────────────────────────
+    end  = due + _dt.timedelta(hours=1)
+    fmt  = '%Y-%m-%dT%H:%M:%S+02:00'
+    start_rfc = due.strftime(fmt)
+    end_rfc   = end.strftime(fmt)
+    emails_csv = ','.join(emails)
+
+    # ── Call gog calendar create ──────────────────────────────────────────────
+    gog_cmd = [
+        '/opt/homebrew/bin/gog', 'calendar', 'create', 'josh@amalfiai.com',
+        '--account', 'josh@amalfiai.com',
+        '--summary', title,
+        '--from',    start_rfc,
+        '--to',      end_rfc,
+        '--attendees', emails_csv,
+        '--with-meet',
+        '--json',
+        '--results-only',
+    ]
+    try:
+        gog_env = dict(os.environ)
+        gog_env['PATH'] = '/opt/homebrew/bin:/usr/local/bin:' + gog_env.get('PATH', '')
+        gog_result = subprocess.run(
+            gog_cmd,
+            capture_output=True, text=True, timeout=30,
+            env=gog_env
+        )
+        gog_stdout = gog_result.stdout.strip()
+        gog_stderr = gog_result.stderr.strip()
+    except Exception as e:
+        tg_send(chat_id,
+            f"\u274c Calendar create failed: {e}\n"
+            "Try: calendar.google.com"
+        )
+        return
+
+    if not gog_stdout:
+        err_snippet = gog_stderr[:200] if gog_stderr else 'no output'
+        tg_send(chat_id,
+            f"\u274c Calendar create failed: {err_snippet}\n"
+            "Try: calendar.google.com"
+        )
+        return
+
+    # ── Parse JSON for Meet link and event ID ─────────────────────────────────
+    meet_link = ''
+    event_id  = ''
+    try:
+        cal_data = _json.loads(gog_stdout)
+        # gog may return the event directly or nested under 'event'
+        event_obj = cal_data if 'id' in cal_data else cal_data.get('event', cal_data)
+        event_id  = event_obj.get('id', '')
+        entry_points = (
+            event_obj
+            .get('conferenceData', {})
+            .get('entryPoints', [])
+        )
+        for ep in entry_points:
+            if ep.get('entryPointType') == 'video':
+                meet_link = ep.get('uri', '')
+                break
+        if not meet_link:
+            # Fallback: look for hangoutLink at top level
+            meet_link = event_obj.get('hangoutLink', '')
+    except Exception:
+        pass
+
+    if not meet_link:
+        err_snippet = gog_stderr[:200] if gog_stderr else gog_stdout[:200]
+        tg_send(chat_id,
+            f"\u274c Calendar create failed: {err_snippet}\n"
+            "Try: calendar.google.com"
+        )
+        return
+
+    # ── Format confirmation message ───────────────────────────────────────────
+    day_str  = due.strftime('%A')
+    date_str = due.strftime('%-d %b %Y')
+    time_str = due.strftime('%H:%M')
+    attendees_display = '\n'.join(f"  {e}" for e in emails)
+
+    confirm_msg = (
+        f"\u2705 <b>Meet created: {title}</b>\n"
+        f"\U0001f4c5 {day_str} {date_str} at {time_str} SAST\n"
+        f"\U0001f517 {meet_link}\n"
+        f"\U0001f465 {emails_csv}\n\n"
+        f"Reply <b>send meet invite</b> to get a draft Sophia invite email."
+    )
+    tg_send(chat_id, confirm_msg)
+
+    # ── Persist pending meet details for "send meet invite" follow-up ─────────
+    pending_meet = {
+        'title':      title,
+        'start':      start_rfc,
+        'end':        end_rfc,
+        'meet_link':  meet_link,
+        'event_id':   event_id,
+        'attendees':  emails,
+        'day':        day_str,
+        'date':       date_str,
+        'time':       time_str,
+    }
+    pending_file = f"{WS_ROOT}/tmp/pending-meet-{chat_id}.json"
+    try:
+        with open(pending_file, 'w') as pf:
+            _json.dump(pending_meet, pf)
+    except Exception:
+        pass
+
 # ── Handle research: command ──────────────────────────────────────────────────
 def handle_research(chat_id, text):
     """
@@ -478,8 +916,15 @@ def handle_help(chat_id):
         "/remind 30min Description — set a reminder\n"
         "/remind 3pm Description\n"
         "/remind tomorrow 9am Description\n"
+        "/meet tomorrow 10am Title attendee@email.com\n"
+        "/meet friday 2pm Title email1@co.com email2@co.com\n"
         "/newlead [Name] email@co.com [Company]\n"
         "/ooo [reason] — Sophia holds all drafts\n"
+        "/calibrate new — onboard a new client for Sophia\n"
+        "/calibrate list — list all configured clients\n"
+        "/agents — view/toggle active agents\n"
+        "/enrich — run Apollo+Hunter+Apify enrichment on pending leads\n"
+        "/enrich email@co.com — verify a single email\n"
         "/available — Resume normal ops\n"
         "research: Title\\nContent — queue research for digest\n\n"
         "✅ <b>Email approvals</b> — tap the buttons on cards"
@@ -517,7 +962,7 @@ for u in updates:
             continue
 
         if action not in ('approve', 'hold', 'adjust', 'remind_done', 'remind_snooze',
-                          'book_flight', 'book_cancel'):
+                          'book_flight', 'book_cancel', 'wa_dismiss'):
             continue
 
         # Fetch email context for signal logging (non-blocking)
@@ -590,18 +1035,31 @@ for u in updates:
                     try: meta = _json.loads(meta)
                     except Exception: meta = {}
                 meta['due'] = snooze_until
-                meta['last_sent_at'] = None
                 requests.patch(
                     f"{SUPABASE_URL}/rest/v1/notifications?id=eq.{email_id}",
                     headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}',
                              'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
-                    json={'metadata': meta}, timeout=10
+                    json={'metadata': meta, 'status': 'unread'}, timeout=10
                 )
             except Exception:
                 pass
             log_signal('josh', 'josh', 'reminder_snoozed', {'notification_id': email_id})
             if chat_id:
                 tg_send(chat_id, '⏱ Snoozed 15 minutes.')
+
+        elif action == 'wa_dismiss':
+            # email_id is the whatsapp_messages row id
+            # Message already marked notified — just edit Telegram message to remove buttons
+            msg_id = (msg or {}).get('message_id')
+            if chat_id and msg_id:
+                try:
+                    requests.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageReplyMarkup",
+                        json={'chat_id': chat_id, 'message_id': msg_id, 'reply_markup': {'inline_keyboard': []}},
+                        timeout=5
+                    )
+                except Exception:
+                    pass
 
         elif action == 'book_flight':
             # email_id here is the chat_id encoded in callback_data as "book_flight:{chat_id}"
@@ -719,15 +1177,27 @@ for u in updates:
 
     is_group = chat_type in ('group', 'supergroup')
     JOSH_BOT_USERNAME = os.environ.get('JOSH_BOT_USERNAME', 'JoshAmalfiBot')
-    WS = '/Users/henryburton/.openclaw/workspace-anthropic'
+    WS = os.environ.get('AOS_ROOT', '/Users/henryburton/.openclaw/workspace-anthropic')
 
-    # ── Private chat: persist chat_id so proactive scripts can reach Josh ────
+    # ── Private chat: identify user and persist chat_id ──────────────────────
     if not is_group:
-        try:
-            with open(f"{WS}/tmp/josh_private_chat_id", 'w') as _cf:
-                _cf.write(str(chat_id))
-        except Exception:
-            pass
+        # Determine which user is messaging
+        user_profile = 'josh'
+        if SALAH_CHAT_ID and str(chat_id) == str(SALAH_CHAT_ID):
+            user_profile = 'salah'
+            try:
+                with open(f"{WS}/tmp/salah_private_chat_id", 'w') as _cf:
+                    _cf.write(str(chat_id))
+            except Exception:
+                pass
+        else:
+            try:
+                with open(f"{WS}/tmp/josh_private_chat_id", 'w') as _cf:
+                    _cf.write(str(chat_id))
+            except Exception:
+                pass
+    else:
+        user_profile = 'josh'  # group chats always Josh's context
 
     # ── Group chat: log ALL messages to shared history ────────────────────────
     if is_group:
@@ -836,10 +1306,11 @@ for u in updates:
             with open(img_path, 'wb') as f:
                 f.write(img_data)
             caption_part = f"\nCaption: {caption}" if caption else ""
-            user_text = f"[Photo from Josh]{caption_part}\nImage file: {img_path}"
+            user_display = 'Salah' if user_profile == 'salah' else 'Josh'
+            user_text = f"[Photo from {user_display}]{caption_part}\nImage file: {img_path}"
             subprocess.Popen([
                 'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
-                str(chat_id), user_text, group_history_file,
+                str(chat_id), user_text, group_history_file, get_reply_mode(chat_id), user_profile,
             ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
         except Exception as e:
             tg_send(chat_id, f'❌ Failed to process photo: {e}')
@@ -899,7 +1370,7 @@ for u in updates:
 
             subprocess.Popen([
                 'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
-                str(chat_id), user_text, group_history_file, 'audio',
+                str(chat_id), user_text, group_history_file, 'audio', user_profile,
             ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
         except Exception as e:
             tg_send(chat_id, f'❌ Failed to process voice: {e}')
@@ -921,13 +1392,14 @@ for u in updates:
                 except Exception:
                     thumb_path = None  # fall back to no-thumbnail description
             caption_part = f"\nCaption: {caption}" if caption else ""
+            user_display = 'Salah' if user_profile == 'salah' else 'Josh'
             if thumb_path:
-                user_text = f"[{label} from Josh — showing thumbnail]{caption_part}\nThumbnail file: {thumb_path}"
+                user_text = f"[{label} from {user_display} — showing thumbnail]{caption_part}\nThumbnail file: {thumb_path}"
             else:
-                user_text = f"[{label} from Josh received — no thumbnail]{caption_part}"
+                user_text = f"[{label} from {user_display} received — no thumbnail]{caption_part}"
             subprocess.Popen([
                 'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
-                str(chat_id), user_text, group_history_file,
+                str(chat_id), user_text, group_history_file, get_reply_mode(chat_id), user_profile,
             ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
         except Exception as e:
             tg_send(chat_id, f'❌ Failed to process video: {e}')
@@ -978,10 +1450,11 @@ for u in updates:
 
             if is_image:
                 # Images: pass file path — Claude can view them
-                user_text = f"[Image file from Josh: {fname_safe}]{caption_part}\nFile: {doc_path}"
+                user_display = 'Salah' if user_profile == 'salah' else 'Josh'
+                user_text = f"[Image file from {user_display}: {fname_safe}]{caption_part}\nFile: {doc_path}"
                 subprocess.Popen([
                     'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
-                    str(chat_id), user_text, group_history_file,
+                    str(chat_id), user_text, group_history_file, get_reply_mode(chat_id), user_profile,
                 ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
 
             elif is_text:
@@ -1005,30 +1478,33 @@ for u in updates:
                     )
                 else:
                     # Small: embed inline for Claude to read directly
+                    user_display = 'Salah' if user_profile == 'salah' else 'Josh'
                     user_text = (
-                        f"[Text file from Josh: {fname_safe}]{caption_part}\n\n"
+                        f"[Text file from {user_display}: {fname_safe}]{caption_part}\n\n"
                         f"--- FILE CONTENT ---\n{content_str}\n--- END FILE ---"
                     )
                     subprocess.Popen([
                         'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
-                        str(chat_id), user_text, group_history_file,
+                        str(chat_id), user_text, group_history_file, get_reply_mode(chat_id), user_profile,
                     ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
 
             elif is_pdf:
                 # PDFs: Claude Code's Read tool can process PDFs directly
-                user_text = f"[PDF from Josh: {fname_safe}]{caption_part}\nFile: {doc_path}"
+                user_display = 'Salah' if user_profile == 'salah' else 'Josh'
+                user_text = f"[PDF from {user_display}: {fname_safe}]{caption_part}\nFile: {doc_path}"
                 subprocess.Popen([
                     'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
-                    str(chat_id), user_text, group_history_file,
+                    str(chat_id), user_text, group_history_file, get_reply_mode(chat_id), user_profile,
                 ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
 
             else:
                 # Other binary files: pass path + type — Claude can attempt to read
                 mime_display = mime or 'unknown type'
-                user_text = f"[File from Josh: {fname_safe} ({mime_display})]{caption_part}\nFile: {doc_path}"
+                user_display = 'Salah' if user_profile == 'salah' else 'Josh'
+                user_text = f"[File from {user_display}: {fname_safe} ({mime_display})]{caption_part}\nFile: {doc_path}"
                 subprocess.Popen([
                     'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
-                    str(chat_id), user_text, group_history_file,
+                    str(chat_id), user_text, group_history_file, get_reply_mode(chat_id), user_profile,
                 ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
 
         except Exception as e:
@@ -1037,6 +1513,80 @@ for u in updates:
 
     # ── Text: commands + free-text → Claude ───────────────────────────────────
     text_lower = text.lower()
+    actor_id = 'salah' if user_profile == 'salah' else 'josh'
+
+    # Josh-only commands — block for Salah
+    JOSH_ONLY_CMDS = ('/remind', '/ooo', '/available', '/newlead', '/meet', '/calibrate', '/agents', '/enrich')
+    if user_profile == 'salah' and any(text_lower.startswith(c) for c in JOSH_ONLY_CMDS):
+        tg_send(chat_id, f"⛔ That command is Josh-only on this system.")
+        continue
+
+    # ── Calibration wizard state machine ──────────────────────────────────────
+    calibrate_state_file = f"{WS}/tmp/calibrate-state-{chat_id}.json"
+    calibrate_data_file  = f"{WS}/tmp/calibrate-data-{chat_id}.json"
+
+    if text_lower.startswith('/calibrate'):
+        arg = text.split(None, 1)[1].strip() if ' ' in text else 'new'
+        if arg == 'list':
+            subprocess.run(['bash', f'{WS}/scripts/sophia-calibrate.sh', 'list'],
+                           capture_output=False)
+        else:
+            subprocess.Popen(['bash', f'{WS}/scripts/sophia-calibrate.sh', arg])
+        continue
+
+    # Active calibration wizard — intercept free text as answers
+    if os.path.exists(calibrate_state_file) and user_profile == 'josh':
+        try:
+            state = json.loads(open(calibrate_state_file).read())
+        except Exception:
+            state = {}
+
+        step = state.get('step', '')
+        cdata = state.get('data', {})
+        slug  = state.get('slug')
+
+        STEPS = [
+            ('company_name',    'Great! Now enter the <b>primary contact name</b> (e.g. "Riaan Kotze"):'),
+            ('contact_name',    'What is their <b>role/title</b>? (e.g. "CEO", "Founder"):'),
+            ('contact_role',    'What is their <b>email address</b>?'),
+            ('contact_email',   'What <b>industry</b> are they in? (e.g. Legal, Property, Retail):'),
+            ('industry',        'In one sentence: <b>what does the business do</b>?'),
+            ('what_they_do',    'What is the <b>current project</b> Amalfi AI is building for them?'),
+            ('current_project', 'What are their <b>top 2-3 priorities</b>? (brief bullet points fine):'),
+            ('key_priorities',  'Preferred <b>email tone</b>? (e.g. "formal", "casual and direct", "warm professional"):'),
+            ('email_tone',      'Last one — are they on a <b>retainer</b> or <b>project</b> basis? Reply "retainer" or "project":'),
+        ]
+        STEP_KEYS = [s[0] for s in STEPS]
+
+        if step and step in STEP_KEYS:
+            # Save this answer
+            cdata[step] = text.strip()
+
+            # Generate slug from company name
+            if step == 'company_name':
+                import re as _re
+                slug = _re.sub(r'[^a-z0-9]+', '_', text.strip().lower()).strip('_')
+                state['slug'] = slug
+
+            # Move to next step
+            idx = STEP_KEYS.index(step)
+            if idx + 1 < len(STEPS):
+                next_step, next_prompt = STEPS[idx + 1]
+                state['step'] = next_step
+                state['data'] = cdata
+                with open(calibrate_state_file, 'w') as f:
+                    json.dump(state, f)
+                tg_send(chat_id, next_prompt)
+            else:
+                # All steps done — save retainer status and trigger write
+                cdata['retainer_status'] = 'retainer' if 'retainer' in text.lower() else 'project_only'
+                cdata['project_start_date'] = __import__('datetime').date.today().isoformat()
+                with open(calibrate_data_file, 'w') as f:
+                    json.dump(cdata, f)
+                os.remove(calibrate_state_file)
+                tg_send(chat_id, f'⏳ Writing {cdata.get("company_name","client")} context...')
+                subprocess.Popen(['bash', f'{WS}/scripts/sophia-calibrate.sh', slug])
+        continue
 
     if text_lower.startswith('/remind'):
         handle_remind(chat_id, text)
@@ -1046,6 +1596,10 @@ for u in updates:
         handle_newlead(chat_id, text)
         log_signal('josh', 'josh', 'command_used', {'command': 'newlead', 'text': text[:120]})
 
+    elif text_lower.startswith('/meet'):
+        handle_meet(chat_id, text)
+        log_signal('josh', 'josh', 'command_used', {'command': 'meet', 'text': text[:120]})
+
     elif text_lower.startswith('/ooo'):
         handle_ooo(chat_id, text)
         log_signal('josh', 'josh', 'command_used', {'command': 'ooo', 'text': text[:120]})
@@ -1054,18 +1608,48 @@ for u in updates:
         handle_available(chat_id)
         log_signal('josh', 'josh', 'command_used', {'command': 'available'})
 
+    elif text_lower.startswith('/agents'):
+        handle_agents(chat_id, text)
+        log_signal('josh', 'josh', 'command_used', {'command': 'agents', 'text': text[:120]})
+
+    elif text_lower.startswith('/enrich'):
+        # /enrich               → run enrichment on all pending leads
+        # /enrich <email>       → verify a single email
+        # /enrich lead <id>     → enrich a specific lead by ID
+        parts = text.strip().split(None, 2)
+        tg_send(chat_id, '⏳ Running enrichment waterfall (Apollo → Hunter → Apify)...')
+        if len(parts) == 2 and '@' in parts[1]:
+            # Verify single email
+            subprocess.Popen(['bash', f'{WS}/scripts/cold-outreach/enrich-leads.sh', '--email', parts[1]])
+        elif len(parts) >= 3 and parts[1].lower() == 'lead':
+            subprocess.Popen(['bash', f'{WS}/scripts/cold-outreach/enrich-leads.sh', '--lead', parts[2]])
+        else:
+            subprocess.Popen(['bash', f'{WS}/scripts/cold-outreach/enrich-leads.sh'])
+        log_signal('josh', 'josh', 'command_used', {'command': 'enrich', 'text': text[:120]})
+
+    elif text_lower.startswith('/voice'):
+        handle_voice_toggle(chat_id)
+
+    elif text_lower.startswith('/debt'):
+        handle_debt(chat_id, text)
+        log_signal(actor_id, actor_id, 'command_used', {'command': 'debt', 'text': text[:120]})
+
+    elif text_lower.startswith('/finances') or text_lower == '/finance':
+        handle_finances(chat_id)
+        log_signal(actor_id, actor_id, 'command_used', {'command': 'finances'})
+
     elif text_lower.startswith('/help') or text_lower == '/start':
         handle_help(chat_id)
 
     elif text_lower.startswith('research:'):
         handle_research(chat_id, text)
-        log_signal('josh', 'josh', 'command_used', {'command': 'research', 'text': text[:200]})
+        log_signal(actor_id, actor_id, 'command_used', {'command': 'research', 'text': text[:200]})
 
     else:
         import time as _time
 
-        # Log free-text message for adaptive memory — captures Josh's topics and patterns
-        log_signal('josh', 'josh', 'message_sent', {
+        # Log free-text message for adaptive memory
+        log_signal(actor_id, actor_id, 'message_sent', {
             'text': text[:500],
             'length': len(text),
             'hour_utc': __import__('datetime').datetime.now(__import__('datetime').timezone.utc).hour,
@@ -1081,7 +1665,7 @@ for u in updates:
                 msg_text = f'Adjust the email draft for email_id={email_id}. The requested change: {text}'
                 subprocess.Popen([
                     'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
-                    str(chat_id), msg_text, group_history_file,
+                    str(chat_id), msg_text, group_history_file, get_reply_mode(chat_id), user_profile,
                 ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
             except Exception:
                 pass
@@ -1104,6 +1688,7 @@ for u in updates:
                 f'{WS}/scripts/telegram-batch-dispatcher.py',
                 str(chat_id),
                 group_history_file,
+                user_profile,
             ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
 
 # advance offset

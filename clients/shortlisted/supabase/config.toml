@@ -1,0 +1,4 @@
+project_id = "shortlisted"
+
+[functions.process-candidates]
+verify_jwt = false

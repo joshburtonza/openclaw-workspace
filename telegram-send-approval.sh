@@ -27,7 +27,7 @@ if [[ "${1:-}" == "fyi" ]]; then
   BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
   _CHAT_ID_FILE="/Users/henryburton/.openclaw/workspace-anthropic/tmp/josh_private_chat_id"
   CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-$(cat "$_CHAT_ID_FILE" 2>/dev/null || echo "1140320036")}"
-  SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+  SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
   ANON_KEY="${SUPABASE_ANON_KEY:-}"
 
   case "$FYI_CLIENT" in
@@ -115,7 +115,7 @@ BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 _CHAT_ID_FILE="/Users/henryburton/.openclaw/workspace-anthropic/tmp/josh_private_chat_id"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-$(cat "$_CHAT_ID_FILE" 2>/dev/null || echo "1140320036")}"
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 ANON_KEY="${SUPABASE_ANON_KEY:-}"
 
 case "$CLIENT" in

@@ -17,10 +17,10 @@ if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 ACTION="${1:-}"
 REASON="${2:-No reason given}"
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-CHAT_ID="1140320036"
+CHAT_ID="${AOS_TELEGRAM_OWNER_CHAT_ID:-1140320036}"
 AVAIL_FILE="/Users/henryburton/.openclaw/workspace-anthropic/josh-availability.md"
 
 if [[ "$ACTION" != "set" && "$ACTION" != "clear" ]]; then

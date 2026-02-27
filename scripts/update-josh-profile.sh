@@ -10,7 +10,8 @@
 set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 PROFILE="$WS/memory/josh-profile.md"
 LOCK="$WS/tmp/josh-profile-update.lock"
 

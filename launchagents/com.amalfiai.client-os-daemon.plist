@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.amalfiai.client-os-daemon</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <!-- UPDATE: path to client-os-daemon.sh on this machine -->
+    <string>/Users/REPLACE_USER/.amalfiai/workspace/scripts/client-os-daemon.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>AOS_ROOT</key>
+    <!-- UPDATE: workspace path on this machine -->
+    <string>/Users/REPLACE_USER/.amalfiai/workspace</string>
+    <key>AOS_CLIENT_SLUG</key>
+    <!-- UPDATE: unique slug for this client (no spaces, underscores) -->
+    <string>REPLACE_SLUG</string>
+  </dict>
+
+  <!-- Every 5 minutes — client phones home, reads kill switch -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <!-- KeepAlive=true — this daemon CANNOT be killed by a status change -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/REPLACE_USER/.amalfiai/workspace/out/client-os-daemon.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/REPLACE_USER/.amalfiai/workspace/out/client-os-daemon.err.log</string>
+</dict>
+</plist>

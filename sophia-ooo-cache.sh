@@ -4,7 +4,7 @@
 # Checks Supabase system_config first (authoritative), falls back to markdown.
 # Caches result for 15 minutes so we don't hammer Supabase on every email.
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 # Load service role key from env file
 ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi

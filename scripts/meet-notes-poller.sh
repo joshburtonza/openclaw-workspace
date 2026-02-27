@@ -8,7 +8,8 @@
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
 source "$WS/scripts/lib/task-helpers.sh"
@@ -24,7 +25,7 @@ TASK_ID=$(task_create "Meet Notes Poller" "Scanning for new meeting notes" "meet
 KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 ACCOUNT="josh@amalfiai.com"
 
 touch "$SEEN_FILE"
@@ -100,17 +101,17 @@ def call_claude(prompt, model):
     finally:
         os.unlink(tmp.name)
 
-def call_gpt4o(prompt, temperature=0.7):
+def call_openai(prompt, model='gpt-5.2', temperature=0.7):
     openai_key = os.environ.get('OPENAI_API_KEY', '')
     if not openai_key:
         return ''
     try:
         import urllib.request as _req
-        payload = json.dumps({
-            'model': 'gpt-4o',
-            'messages': [{'role': 'user', 'content': prompt}],
-            'temperature': temperature,
-        }).encode()
+        # o3 and o-series models don't support temperature
+        body = {'model': model, 'messages': [{'role': 'user', 'content': prompt}]}
+        if not model.startswith('o'):
+            body['temperature'] = temperature
+        payload = json.dumps(body).encode()
         req = _req.Request(
             'https://api.openai.com/v1/chat/completions',
             data=payload,
@@ -121,7 +122,7 @@ def call_gpt4o(prompt, temperature=0.7):
             data = json.loads(resp.read())
             return data['choices'][0]['message']['content'].strip()
     except Exception as e:
-        print(f"  [warn] GPT-4o call failed: {e}")
+        print(f"  [warn] OpenAI ({model}) call failed: {e}")
         return ''
 
 def claude_complete(system_prompt, user_content):
@@ -364,7 +365,7 @@ Provide your deep strategic analysis of this meeting."""
     if not opus_analysis:
         opus_analysis = '(Opus analysis unavailable)'
 
-    # ── Step 3: GPT-4o — second opinion ───────────────────────────────────────
+    # ── Step 3: o3 — second opinion ───────────────────────────────────────────
     second_opinion_prompt = f"""Claude Opus has analysed a client meeting for an AI startup founder.
 
 Meeting: {meeting_name}
@@ -379,16 +380,16 @@ Extracted facts:
 Review Opus's analysis as an independent model. What did it get right? What did it miss
 or weight differently? Any risks or opportunities Opus didn't surface? 2 short paragraphs."""
 
-    second_opinion = call_gpt4o(second_opinion_prompt)
+    second_opinion = call_openai(second_opinion_prompt, model='o3')
 
-    # ── Step 4: GPT-4o — write the final Telegram debrief ─────────────────────
+    # ── Step 4: gpt-5.2 — write the final Telegram debrief ────────────────────
     debrief_prompt = f"""You are writing a post-meeting debrief for Josh Burton, founder of Amalfi AI.
 Two AI models have analysed this meeting. Synthesise into a sharp, actionable Telegram message.
 
 Rules:
 - Address Josh directly ("you", "your")
 - Lead with the most important thing he needs to know or do
-- Where Opus and GPT-4o agree, state it clearly
+- Where Opus and o3 agree, state it clearly
 - Where they differ, briefly surface both
 - Concrete action items with owners
 - HTML bold for section headers
@@ -398,7 +399,7 @@ Rules:
 ## Opus analysis
 {opus_analysis}
 
-## Second opinion
+## Second opinion (o3)
 {second_opinion if second_opinion else '(unavailable — Opus analysis only)'}
 
 ## Extracted facts
@@ -406,9 +407,9 @@ Rules:
 
 Write the debrief now."""
 
-    analysis = call_gpt4o(debrief_prompt, temperature=0.65)
+    analysis = call_openai(debrief_prompt, model='gpt-5.2', temperature=0.65)
     if not analysis:
-        # Fallback to Opus-only if GPT-4o failed
+        # Fallback to Opus-only if OpenAI failed
         analysis = opus_analysis or '_(Analysis unavailable)_'
 
     # Send — split if over Telegram limit

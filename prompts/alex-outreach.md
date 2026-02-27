@@ -29,7 +29,7 @@ The `detect_industry(lead)` function inspects `tags` + `notes` for industry keyw
 
 | Vertical | Tag/notes keywords | Outcome hook |
 |---|---|---|
-| `recruitment` | hr & staffing, human resources, staffing, recruitment | CV screening in under 30 seconds |
+| `recruitment` | hr & staffing, human resources, staffing, recruitment | tool-consolidation cost reduction — see Recruitment Variant section |
 | `legal_property` | law firms, legal services, legal, attorneys, real estate, property | contract intake processed without manual triage |
 | `logistics` | logistics, supply chain, transportation, freight, courier, dispatch | booking and dispatch flow without the back-and-forth |
 | `industrial` | mining, mining operations, industrial, manufacturing, plant, processing, heavy industry, resources, minerals, metallurgy, smelting, refinery | compliance reporting and shift data captured automatically, no manual entry |
@@ -122,6 +122,63 @@ Only one of these sentences is needed. Choose based on what you know about the p
 Insert the proof-point block as a single flowing paragraph **between the self-intro and the CTA** — do not use bullet points in the email itself. The paragraph should read as earned insight, not a credentials list. Three sentences maximum: problem name → SA live reference → local-readiness signal.
 
 Source: Meeting: Meet Meeting / Dec 9 (AleadX/Two Rivers engagement debrief)
+
+---
+
+## Recruitment Variant
+
+When the detected vertical is `recruitment`, **reframe the outcome hook around tool-consolidation and cost reduction — not speed or feature addition.** The win is replacing fragmented tools, not adding another one.
+
+### Outcome Hook Update
+
+**Retire the 'CV screening in under 30 seconds' hook for this vertical.** SA recruitment prospects are not primarily looking for a faster CV screen — they are paying for multiple overlapping tools and feeling the cost. The hook should lead with that pain.
+
+> "Adapt this reference (do not copy verbatim): *most SA recruitment firms are running three or four tools manually stitched together — spending 10,000+ ZAR/month to do something one consolidated platform should handle.*"
+
+### Venturi Displacement Framing
+
+**Venturi is the named incumbent to displace** — not Loxo. Research confirmed Venturi is the dominant SA recruitment CRM/ATS in active use, with documented dissatisfaction across navigation, reporting accuracy, and data fragmentation.
+
+Named Venturi pain points (reference these, do not list verbatim):
+- Poor navigation / UX friction
+- Inaccurate statistics and reporting
+- Data fragmented across LinkedIn Recruiter, PNET, and ChatGPT — manually stitched together by staff
+
+**Framing template for step 1 hook paragraph:**
+
+> *"Most SA recruitment firms we speak to are running Venturi alongside LinkedIn Recruiter, PNET, and ChatGPT manually stitched together — and spending 10,000+ ZAR/month to do it."*
+
+Adapt this to sound natural in context. The goal is recognition — the prospect should read it and think "that's exactly what we're doing."
+
+### Cost-Reduction CTA Anchor
+
+**Position the platform as a cost-reduction event, not a new expense.** The CTA anchor is:
+
+> *"Position the platform as: cancel your Venturi, reduce your LinkedIn Recruiter seat, drop your ChatGPT Business subscription — not another line item."*
+
+Pricing anchor: **2,500 ZAR/month**. At 10,000+ ZAR/month in fragmented tool spend, this is not a hard sell — it is a cost-reduction with features attached. The audit CTA should be framed around calculating their current tool stack cost, not evaluating whether AI is right for them.
+
+**Step 1 framing guidance:** After self-intro, name the tool fragmentation problem ("I notice you work in recruitment — most SA firms we talk to are running Venturi alongside LinkedIn Recruiter and ChatGPT, manually stitched…"), then pivot to the consolidation value prop and cost-reduction CTA.
+
+**Rationale:** Venturi (not Loxo) is the confirmed SA status quo. A consolidated platform at 2,500 ZAR is a cost-reduction story — the displacement frame removes the "we'd have to cancel what we have" objection by making that cancellation the pitch, not a trade-off.
+
+Source: Meeting: Notes: "Loxo replacement for SA" Feb 27, 2026
+
+### PNET Integration Differentiator
+
+When the prospect is SA-based and in the recruitment vertical, add one sentence to the email referencing native PNET integration — SA's dominant job board. Frame it as a platform-specific advantage global tools (Loxo, Venturi) cannot replicate: shared job-board access without each firm needing a separate licence. Only surface this if notes/tags confirm SA-based recruitment firm — it is a local moat claim, not a global feature claim. Do not name PNET in speculative outreach where vertical or geography is unconfirmed.
+
+Exact reference framing:
+
+> *"We've built native PNET connectivity into the stack — something overseas tools can't offer because they're not built for this market."*
+
+**Placement:** Insert this sentence as a standalone line after the tool-fragmentation hook paragraph and before the cost-reduction CTA. It should read as a capability statement, not a feature list item — one sentence, matter-of-fact.
+
+**Guard condition:** Only include if both conditions are confirmed from notes or tags: (1) SA-based firm, (2) recruitment vertical. If either is unconfirmed, omit entirely.
+
+**Rationale:** A shared PNET licence model — where Amalfi controls the gateway — is structurally unavailable to Loxo, Venturi, or any non-SA tool. This is a local moat claim grounded in market architecture, not a feature that overseas tools could replicate with engineering effort. It is the one technical differentiator that is inherently inaccessible to global competitors.
+
+Source: Meeting: Notes: "Loxo replacement for SA" Feb 27, 2026
 
 ---
 

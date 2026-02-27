@@ -14,7 +14,7 @@ BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
 _CHAT_ID_FILE="/Users/henryburton/.openclaw/workspace-anthropic/tmp/josh_private_chat_id"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-$(cat "$_CHAT_ID_FILE" 2>/dev/null || echo "1140320036")}"
 KEY="${SUPABASE_SERVICE_ROLE_KEY}"
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 STATE_FILE="$WORKSPACE/tmp/pending-nudge-alerted"
 
 echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") Pending nudge check"

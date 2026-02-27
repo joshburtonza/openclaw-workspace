@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.raceai.client-os-daemon</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/raceai/.amalfiai/workspace/scripts/client-os-daemon.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>AOS_ROOT</key>
+    <string>/Users/raceai/.amalfiai/workspace</string>
+    <key>AOS_CLIENT_SLUG</key>
+    <string>race_technik</string>
+  </dict>
+
+  <!-- Every 5 minutes — client phones home, reads kill switch -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <!-- KeepAlive=true — this daemon CANNOT be killed by a status change -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/raceai/.amalfiai/workspace/out/client-os-daemon.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/raceai/.amalfiai/workspace/out/client-os-daemon.err.log</string>
+</dict>
+</plist>

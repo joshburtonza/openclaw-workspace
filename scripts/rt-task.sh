@@ -9,7 +9,8 @@
 set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 
 # ── Load env ──────────────────────────────────────────────────────────────────
@@ -22,7 +23,7 @@ set -a
 source "$ENV_FILE"
 set +a
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 JOSH_CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"

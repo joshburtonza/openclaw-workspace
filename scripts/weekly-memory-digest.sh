@@ -7,11 +7,12 @@
 set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
@@ -56,16 +57,15 @@ def call_claude(prompt, model):
     finally:
         os.unlink(tmp.name)
 
-def call_gpt4o(prompt, temperature=0.7):
-    """Call GPT-4o via OpenAI API. Returns text output."""
+def call_openai(prompt, model='gpt-5.2', temperature=0.7):
+    """Call OpenAI API with specified model. Returns text output."""
     if not OPENAI_KEY:
         return ''
     try:
-        payload = json.dumps({
-            'model': 'gpt-4o',
-            'messages': [{'role': 'user', 'content': prompt}],
-            'temperature': temperature,
-        }).encode()
+        body = {'model': model, 'messages': [{'role': 'user', 'content': prompt}]}
+        if not model.startswith('o'):
+            body['temperature'] = temperature
+        payload = json.dumps(body).encode()
         req = urllib.request.Request(
             'https://api.openai.com/v1/chat/completions',
             data=payload,
@@ -76,7 +76,7 @@ def call_gpt4o(prompt, temperature=0.7):
             data = json.loads(resp.read())
             return data['choices'][0]['message']['content'].strip()
     except Exception as e:
-        print(f"  [warn] GPT-4o call failed: {e}", file=sys.stderr)
+        print(f"  [warn] OpenAI ({model}) call failed: {e}", file=sys.stderr)
         return ''
 
 now     = datetime.datetime.now(datetime.timezone.utc)
@@ -281,9 +281,9 @@ Reference specific data points. Be direct — this is for Josh's eyes only.
 opus_analysis = call_claude(opus_prompt, 'claude-opus-4-6')
 print(f"  Opus: {len(opus_analysis)} chars", flush=True)
 
-# ── Step 3: GPT-4o — second opinion ──────────────────────────────────────────
+# ── Step 3: o3 — second opinion ───────────────────────────────────────────────
 
-print("  Step 3: GPT-4o second opinion...", flush=True)
+print("  Step 3: o3 second opinion...", flush=True)
 second_opinion_prompt = f"""Claude Opus has analysed one week of behavioural data for an AI startup founder.
 
 Opus concluded:
@@ -296,12 +296,12 @@ As an independent model with different training, review this analysis.
 What did Opus get right? What did it miss, overweight, or interpret differently?
 What would you surface that Opus didn't? Be specific — 2 to 3 short paragraphs."""
 
-second_opinion = call_gpt4o(second_opinion_prompt)
+second_opinion = call_openai(second_opinion_prompt, model='o3')
 print(f"  Second opinion: {len(second_opinion)} chars", flush=True)
 
-# ── Step 4: GPT-4o — write the final personal digest ─────────────────────────
+# ── Step 4: gpt-5.2 — write the final personal digest ────────────────────────
 
-print("  Step 4: GPT-4o final digest...", flush=True)
+print("  Step 4: gpt-5.2 final digest...", flush=True)
 digest_prompt = f"""You are writing Josh's weekly intelligence report from his AI operating system.
 You have two independent analyses of his week. Your job: synthesise them into one personal,
 readable report addressed directly to Josh.
@@ -309,7 +309,7 @@ readable report addressed directly to Josh.
 Rules:
 - Address him as "you" throughout
 - Lead with the single most important insight
-- Where Opus and GPT-4o agree, state it with confidence
+- Where Opus and o3 agree, state it with confidence
 - Where they differ, surface both perspectives briefly
 - Be warm, honest, and specific — no generic startup founder platitudes
 - HTML bold tags for section headers
@@ -319,7 +319,7 @@ Rules:
 ## Opus analysis
 {opus_analysis}
 
-## Second opinion (GPT-4o)
+## Second opinion (o3)
 {second_opinion}
 
 ## Hard stats
@@ -327,7 +327,7 @@ Rules:
 
 Write the digest now."""
 
-report = call_gpt4o(digest_prompt, temperature=0.75)
+report = call_openai(digest_prompt, model='gpt-5.2', temperature=0.75)
 
 if not report:
     # Fallback: send raw stats

@@ -7,14 +7,15 @@
 set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 CLIENTS="$WS/clients"
 ENV_FILE="$WS/.env.scheduler"
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
 
 source "$WS/scripts/lib/task-helpers.sh"
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
@@ -22,7 +23,7 @@ MODEL="claude-sonnet-4-6"
 LOG="$WS/out/research-implement.log"
 
 mkdir -p "$WS/out"
-log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
+log() { echo "[$(date '+%H:%M:%S')] $*"; }  # LaunchAgent captures stdout to $LOG — no tee needed
 log "=== Research implement run ==="
 
 if [[ -z "$SUPABASE_KEY" ]]; then
@@ -110,8 +111,8 @@ try:
         raw = r.read()
         rows = json.loads(raw) if raw and raw.strip() else []
         print(json.dumps(rows[0]) if rows else "")
-except Exception as e:
-    import sys; print("", file=sys.stderr)
+except Exception:
+    pass  # transient fetch failure — TASK_JSON will be empty, loop breaks gracefully
 PY
   )
 
@@ -207,25 +208,20 @@ PY
     fi
     export CLIENT_CONTEXT
 
-    cat > "$PROMPT_TMP" << PROMPT
+    {
+      cat <<'__IMPL_PROMPT__'
 You are an autonomous implementation agent for Amalfi AI. You are working on a CLIENT repository.
 
 ## TASK
-**Title:** ${TASK_TITLE}
-**Priority:** ${TASK_PRIORITY}
-**Repository:** ${REPO_KEY} → ${REPO_PATH}
-
-**Description:**
-${TASK_DESC}
-
-## CLIENT CONTEXT
-${CLIENT_CONTEXT}
-
-## YOUR WORKING DIRECTORY
-The client repo is at: ${REPO_PATH}
-
-## STEPS TO FOLLOW
-1. cd into ${REPO_PATH} and run: git pull origin main (or master — check which branch)
+__IMPL_PROMPT__
+      printf '**Title:** %s\n' "$TASK_TITLE"
+      printf '**Priority:** %s\n' "$TASK_PRIORITY"
+      printf '**Repository:** %s → %s\n\n' "$REPO_KEY" "$REPO_PATH"
+      printf '**Description:**\n%s\n\n' "$TASK_DESC"
+      printf '## CLIENT CONTEXT\n%s\n\n' "$CLIENT_CONTEXT"
+      printf '## YOUR WORKING DIRECTORY\nThe client repo is at: %s\n\n' "$REPO_PATH"
+      printf '## STEPS TO FOLLOW\n1. cd into %s and run: git pull origin main (or master — check which branch)\n' "$REPO_PATH"
+      cat <<'__IMPL_PROMPT__'
 2. Read relevant files to understand the current implementation
 3. Implement the change described — surgical, only what's needed
 4. Build/lint if there's a package.json: npm run build (check if build script exists first)
@@ -239,22 +235,21 @@ The client repo is at: ${REPO_PATH}
 - Follow existing code patterns in the repo (check how other components/pages are structured first)
 - Keep commits clean and descriptive
 - Sign off with: ✅ Implementation complete
-PROMPT
+__IMPL_PROMPT__
+    } > "$PROMPT_TMP"
 
   else
-    cat > "$PROMPT_TMP" << PROMPT
+    {
+      cat <<'__IMPL_PROMPT__'
 You are an autonomous implementation agent for Amalfi AI's internal systems. Your job is to implement the following task.
 
 ## TASK
-**Title:** ${TASK_TITLE}
-**Priority:** ${TASK_PRIORITY}
-
-**Description:**
-${TASK_DESC}
-
-## WORKSPACE
-All files are in: ${WS}/
-
+__IMPL_PROMPT__
+      printf '**Title:** %s\n' "$TASK_TITLE"
+      printf '**Priority:** %s\n\n' "$TASK_PRIORITY"
+      printf '**Description:**\n%s\n\n' "$TASK_DESC"
+      printf '## WORKSPACE\nAll files are in: %s/\n\n' "$WS"
+      cat <<'__IMPL_PROMPT__'
 Key directories:
 - scripts/              — all automation scripts (bash + python)
 - prompts/              — Claude system prompts
@@ -264,11 +259,10 @@ Key directories:
 - clients/              — client repos (qms-guard, favorite-flow-9637aff2, chrome-auto-care, metal-solutions-elegance-site)
 
 ## CURRENT SYSTEM STATE
-${CURRENT_STATE}
-
-## RESEARCH INTEL CONTEXT
-${RESEARCH_INTEL}
-
+__IMPL_PROMPT__
+      printf '%s\n\n' "$CURRENT_STATE"
+      printf '## RESEARCH INTEL CONTEXT\n%s\n\n' "$RESEARCH_INTEL"
+      cat <<'__IMPL_PROMPT__'
 ## STEPS TO FOLLOW
 1. Read the relevant files mentioned in the task
 2. Implement the specific improvement — be surgical
@@ -282,7 +276,8 @@ ${RESEARCH_INTEL}
 - No placeholder TODOs — actually implement it
 - Be precise and targeted
 - Sign off with: ✅ Implementation complete
-PROMPT
+__IMPL_PROMPT__
+    } > "$PROMPT_TMP"
   fi
 
   # ── Run Claude Code ──────────────────────────────────────────────────────────

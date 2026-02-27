@@ -11,7 +11,8 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 PROMPT_FILE="${1:-}"
 JOB_NAME="${2:-$(basename "${PROMPT_FILE%.md}")}"
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 
 if [[ -z "$PROMPT_FILE" || ! -f "$PROMPT_FILE" ]]; then
   echo "Usage: $0 <prompt-file> [job-name]" >&2
@@ -20,6 +21,43 @@ fi
 
 ENV_FILE="$WS/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
+
+# ── Kill switch + OOO guard ───────────────────────────────────────────────────
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
+_API_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
+
+if [[ -f "${HOME}/.openclaw/KILL_SWITCH" ]]; then
+  echo "[run-sophia-job] KILL SWITCH active — $JOB_NAME suppressed." >&2
+  exit 0
+fi
+
+if [[ -n "$_API_KEY" ]]; then
+  export _KS_RAW=$(curl -s \
+    "${SUPABASE_URL}/rest/v1/kill_switch?id=eq.00000000-0000-0000-0000-000000000001&select=status" \
+    -H "apikey: ${_API_KEY}" -H "Authorization: Bearer ${_API_KEY}")
+  _KS=$(python3 -c "import json,os; rows=json.loads(os.environ['_KS_RAW']); print(rows[0]['status'] if rows else 'running')" 2>/dev/null || echo "running")
+  if [[ "$_KS" != "running" ]]; then
+    echo "[run-sophia-job] Kill switch is '$_KS' — $JOB_NAME suppressed." >&2
+    exit 0
+  fi
+
+  export _OOO_RAW=$(curl -s \
+    "${SUPABASE_URL}/rest/v1/system_config?key=eq.sophia_ooo&select=value" \
+    -H "apikey: ${_API_KEY}" -H "Authorization: Bearer ${_API_KEY}")
+  _OOO=$(python3 -c "
+import json, os
+rows = json.loads(os.environ['_OOO_RAW'])
+if not rows: print('false')
+else:
+    v = rows[0].get('value','{}')
+    obj = json.loads(v) if isinstance(v,str) else v
+    print('true' if obj.get('enabled') else 'false')
+" 2>/dev/null || echo "false")
+  if [[ "$_OOO" == "true" ]]; then
+    echo "[run-sophia-job] OOO mode active — $JOB_NAME suppressed." >&2
+    exit 0
+  fi
+fi
 
 LOG_DIR="$WS/out"
 mkdir -p "$LOG_DIR"

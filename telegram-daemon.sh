@@ -8,12 +8,13 @@
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 ANON_KEY="${SUPABASE_ANON_KEY:-}"
 SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 OFFSET_FILE="$WS/tmp/telegram_updates_offset"

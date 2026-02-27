@@ -10,7 +10,7 @@ OUT_FILE="$WORKSPACE/CURRENT_STATE.md"
 
 source "$ENV_FILE"
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 KEY="${SUPABASE_SERVICE_ROLE_KEY}"
 NOW_UTC=$(date -u +"%Y-%m-%d %H:%M UTC")
 TODAY=$(date -u +"%Y-%m-%d")

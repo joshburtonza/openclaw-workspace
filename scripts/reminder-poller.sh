@@ -11,10 +11,10 @@ ROOT="/Users/henryburton/.openclaw/workspace-anthropic"
 ENV_FILE="$ROOT/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-CHAT_ID="1140320036"
+CHAT_ID="${AOS_TELEGRAM_OWNER_CHAT_ID:-1140320036}"
 
 export SUPABASE_URL SERVICE_KEY BOT_TOKEN CHAT_ID
 
@@ -29,7 +29,6 @@ CHAT_ID      = os.environ['CHAT_ID']
 SAST           = datetime.timezone(datetime.timedelta(hours=2))
 now            = datetime.datetime.now(SAST)
 window_end     = now + datetime.timedelta(minutes=15)
-resend_gap     = datetime.timedelta(minutes=10)  # min gap between re-alerts
 stale_cutoff   = datetime.timedelta(minutes=60)  # don't fire if >60min overdue
 auto_dismiss_h = datetime.timedelta(hours=4)     # auto-dismiss if >4h overdue and unread
 
@@ -109,19 +108,6 @@ for rem in reminders:
     if not (now - stale_cutoff <= due <= window_end):
         continue
 
-    # Dedup: don't re-alert within 10 min of last send
-    last_sent_str = meta.get('last_sent_at')
-    if last_sent_str:
-        try:
-            last_sent = datetime.datetime.fromisoformat(last_sent_str)
-            if last_sent.tzinfo is None:
-                last_sent = last_sent.replace(tzinfo=datetime.timezone.utc)
-            last_sent = last_sent.astimezone(SAST)
-            if now - last_sent < resend_gap:
-                continue
-        except Exception:
-            pass
-
     # Format due time
     if due.date() == now.date():
         due_display = due.strftime('%H:%M SAST')
@@ -141,9 +127,9 @@ for rem in reminders:
     }
     tg_send(msg, markup)
 
-    # Record last_sent_at so we don't spam — if this fails, next poll may re-fire
-    meta['last_sent_at'] = now.isoformat()
-    supa_patch(rid, {'metadata': meta})
+    # Mark as 'sent' so this reminder is never fired again.
+    # remind_done → 'dismissed', remind_snooze → resets to 'unread' with new due time.
+    supa_patch(rid, {'status': 'sent'})
 
     fired += 1
     print(f'Fired: {title} (due {due_display})')

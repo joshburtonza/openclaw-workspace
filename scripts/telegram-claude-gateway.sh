@@ -14,13 +14,15 @@ CHAT_ID="${1:-}"
 USER_MSG="${2:-}"
 GROUP_HISTORY_FILE="${3:-}"   # optional: path to group chat history jsonl
 REPLY_MODE="${4:-text}"       # "audio" → send MiniMax TTS voice note; "text" → plain text
+USER_PROFILE="${5:-josh}"     # "josh" (full access) | "salah" (consumer only)
 
 if [[ -z "$CHAT_ID" || -z "$USER_MSG" ]]; then
   echo "Usage: $0 <chat_id> <message> [group_history_file]" >&2
   exit 1
 fi
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 
@@ -329,7 +331,7 @@ def pp(p): return int(re.sub(r'[^\d]', '', str(p)) or '999999')
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '')
 CHAT_ID   = os.environ.get('_CHAT_ID', '')
 ADULTS    = int(os.environ.get('_ADULTS', '1'))
-WS        = '/Users/henryburton/.openclaw/workspace-anthropic'
+WS = os.environ.get('AOS_ROOT', '/Users/henryburton/.openclaw/workspace-anthropic')
 
 try:
     out = json.loads(os.environ.get('_OUT_JSON', '{}'))
@@ -548,8 +550,118 @@ if echo "$USER_MSG" | grep -qi '^\s*/image'; then
   exit 0
 fi
 
-HISTORY_FILE="$WS/tmp/telegram-chat-history.jsonl"
-SYSTEM_PROMPT_FILE="$WS/prompts/telegram-claude-system.md"
+# ── /os command — Client OS kill switch ───────────────────────────────────────
+# Usage: /os                    → list all clients + status
+#        /os pause <slug>       → pause client (outbound stops, monitoring stays)
+#        /os stop <slug>        → stop all agents (except daemon)
+#        /os resume <slug>      → resume all agents
+
+if echo "$USER_MSG" | grep -qi '^\s*/os\b'; then
+  OS_ARGS=$(echo "$USER_MSG" | sed 's|^\s*/os\s*||i' | xargs)
+  OS_ACTION=$(echo "$OS_ARGS" | awk '{print tolower($1)}')
+  OS_SLUG=$(echo "$OS_ARGS" | awk '{print tolower($2)}')
+
+  export _SUPA_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+  export _SUPA_KEY="$SUPABASE_SERVICE_ROLE_KEY"
+  export _OS_ACTION="$OS_ACTION"
+  export _OS_SLUG="$OS_SLUG"
+
+  OS_RESULT=$(python3 << 'PYOS'
+import json, os, urllib.request, datetime
+
+URL  = os.environ.get('_SUPA_URL', 'https://afmpbtynucpbglwtbfuz.supabase.co')
+KEY  = os.environ.get('_SUPA_KEY', '')
+ACT  = os.environ.get('_OS_ACTION', '')
+SLUG = os.environ.get('_OS_SLUG', '')
+
+def supa(method, path, data=None):
+    url = f"{URL}/rest/v1/{path}"
+    body = json.dumps(data).encode() if data else None
+    req = urllib.request.Request(url, data=body, method=method, headers={
+        'apikey': KEY,
+        'Authorization': f'Bearer {KEY}',
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+    except Exception as e:
+        return None
+
+def time_since(iso):
+    if not iso: return 'never'
+    try:
+        dt = datetime.datetime.fromisoformat(iso.replace('Z','+00:00'))
+        diff = datetime.datetime.now(datetime.timezone.utc) - dt
+        mins  = int(diff.total_seconds() // 60)
+        hours = mins // 60
+        days  = hours // 24
+        if days > 0:  return f'{days}d ago'
+        if hours > 0: return f'{hours}h ago'
+        if mins > 0:  return f'{mins}m ago'
+        return 'just now'
+    except:
+        return 'unknown'
+
+STATUS_EMOJI = {'active': '🟢', 'paused': '🟡', 'stopped': '🔴'}
+RETAINER_EMOJI = {'active': '✅', 'overdue': '⚠️', 'cancelled': '❌'}
+
+if ACT in ('pause', 'stop', 'resume', 'active'):
+    if not SLUG:
+        print('Usage: /os pause|stop|resume <client_slug>')
+    else:
+        new_status = 'active' if ACT == 'resume' else ACT
+        rows = supa('PATCH',
+            f'client_os_registry?slug=eq.{SLUG}',
+            {
+                'status': new_status,
+                'status_changed_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                'status_changed_by': 'telegram_josh',
+            })
+        if rows:
+            name = rows[0].get('name', SLUG)
+            emoji = STATUS_EMOJI.get(new_status, '?')
+            print(f'{emoji} {name} set to *{new_status}*\nClient daemon will enforce within 5 min.')
+        else:
+            print(f'Client not found: {SLUG}\nCheck slug spelling.')
+else:
+    # List all clients
+    rows = supa('GET', 'client_os_registry?select=*&order=name') or []
+    if not rows:
+        print('No clients in registry.')
+    else:
+        lines = ['*Client OS Registry*', '']
+        for c in rows:
+            st  = c.get('status', 'unknown')
+            ret = c.get('retainer_status', 'unknown')
+            hb  = time_since(c.get('last_heartbeat'))
+            mo  = int(c.get('monthly_amount') or 0)
+            se  = STATUS_EMOJI.get(st, '?')
+            re  = RETAINER_EMOJI.get(ret, '?')
+            lines.append(f"{se} *{c['name']}* (`{c['slug']}`)")
+            lines.append(f"  Status: {st} | Retainer: {re} {ret}")
+            lines.append(f"  Heartbeat: {hb} | R{mo:,}/mo")
+            lines.append('')
+        lines.append('Commands: `/os pause <slug>` `/os stop <slug>` `/os resume <slug>`')
+        print('\n'.join(lines))
+PYOS
+)
+
+  tg_send "$OS_RESULT"
+  exit 0
+fi
+
+# Route to per-user system prompt and isolated history
+if [[ "$USER_PROFILE" == "salah" ]]; then
+  SYSTEM_PROMPT_FILE="$WS/prompts/telegram-salah-system.md"
+  HISTORY_FILE="$WS/tmp/telegram-salah-history.jsonl"
+  USER_DISPLAY="Salah"
+else
+  SYSTEM_PROMPT_FILE="$WS/prompts/telegram-claude-system.md"
+  HISTORY_FILE="$WS/tmp/telegram-chat-history.jsonl"
+  USER_DISPLAY="Josh"
+fi
 mkdir -p "$WS/tmp"
 
 # In group chats: small random delay to avoid responding simultaneously with other bots
@@ -579,7 +691,7 @@ for line in lines:
     except:
         pass
 print('\n'.join(parts))
-" 2>/dev/null || true)
+" 2>/dev/null) || true
 elif [[ -f "$HISTORY_FILE" ]]; then
   # Private chat: use personal history
   HISTORY=$(tail -20 "$HISTORY_FILE" | python3 -c "
@@ -595,7 +707,7 @@ for line in lines:
     except:
         pass
 print('\n'.join(parts))
-" 2>/dev/null || true)
+" 2>/dev/null) || true
 fi
 
 # ── Brave web search (inject live context when message looks like a question) ──
@@ -649,6 +761,9 @@ CURRENT_STATE=$(cat "$WS/CURRENT_STATE.md" 2>/dev/null || echo "")
 RESEARCH_INTEL=$(cat "$WS/memory/research-intel.md" 2>/dev/null || echo "")
 JOSH_PROFILE=$(cat "$WS/memory/josh-profile.md" 2>/dev/null || echo "")
 
+# Load OS identity
+OS_SOUL=$(cat "$WS/prompts/amalfi-os-soul.md" 2>/dev/null || echo "")
+
 # Load Sophia identity context
 SOPHIA_SOUL=$(cat "$WS/prompts/sophia/soul.md" 2>/dev/null || echo "")
 SOPHIA_MEMORY=$(cat "$WS/memory/sophia/memory.md" 2>/dev/null || echo "")
@@ -679,6 +794,9 @@ fi
 MEMORY_BLOCK=""
 if [[ -n "$LONG_TERM_MEMORY" ]]; then
   MEMORY_BLOCK="
+=== AMALFI OS — IDENTITY ===
+${OS_SOUL}
+
 === WHO JOSH IS ===
 ${JOSH_PROFILE}
 
@@ -713,18 +831,18 @@ ${MEMORY_BLOCK}${WEB_BLOCK}
 === RECENT CONVERSATION ===
 ${HISTORY}
 
-Josh: ${USER_MSG}"
+${USER_DISPLAY}: ${USER_MSG}"
 else
   FULL_PROMPT="${SYSTEM_PROMPT}${GROUP_CONTEXT}
 Today: ${TODAY}
 ${MEMORY_BLOCK}${WEB_BLOCK}
-Josh: ${USER_MSG}"
+${USER_DISPLAY}: ${USER_MSG}"
 fi
 
 # ── Store the user message in history ────────────────────────────────────────
 # In group chats, messages are already logged by the poller — skip to avoid duplicates
 if [[ -z "$GROUP_HISTORY_FILE" ]]; then
-  echo "{\"role\":\"Josh\",\"message\":$(echo "$USER_MSG" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" >> "$HISTORY_FILE"
+  echo "{\"role\":\"${USER_DISPLAY}\",\"message\":$(echo "$USER_MSG" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" >> "$HISTORY_FILE"
 fi
 
 # ── Show typing indicator ─────────────────────────────────────────────────────

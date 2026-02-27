@@ -11,7 +11,8 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 
@@ -21,7 +22,7 @@ if [[ -z "$CLIENT_SLUG" ]]; then
   exit 1
 fi
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 MEETING_JOURNAL="$WS/memory/meeting-journal.md"
 GITHUB_SCRIPT="$WS/sophia-github-context.sh"

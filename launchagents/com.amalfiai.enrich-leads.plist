@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.amalfiai.enrich-leads</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/cold-outreach/enrich-leads.sh</string>
+    </array>
+
+    <!-- Every 30 minutes -->
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/enrich-leads.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/enrich-leads.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+      <key>HOME</key>
+      <string>/Users/henryburton</string>
+    </dict>
+  </dict>
+</plist>

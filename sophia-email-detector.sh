@@ -21,8 +21,8 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-ACCOUNT="sophia@amalfiai.com"
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+ACCOUNT="${AOS_SOPHIA_EMAIL:-sophia@amalfiai.com}"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ"
 
 # Load service role key for INSERT (bypasses RLS)
@@ -242,7 +242,7 @@ for tid in thread_ids:
 # ── Step 6: also surface any existing pending rows in the DB ─────────────────
 # Catches rows inserted via webhook, direct API, or tests that bypassed Gmail.
 # Excludes loop addresses (sophia@ sending to herself etc).
-LOOP_ADDRESSES = {'sophia@amalfiai.com', 'postmaster@amalfiai.com'}
+LOOP_ADDRESSES = {'${AOS_SOPHIA_EMAIL:-sophia@amalfiai.com}', 'postmaster@amalfiai.com'}
 import requests as _req
 try:
     _r = _req.get(

@@ -8,10 +8,10 @@ set -euo pipefail
 # Ensure Homebrew bin is in PATH (LaunchAgent runs with minimal environment)
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ"
-ACCOUNT="sophia@amalfiai.com"
-CC="josh@amalfiai.com,salah@amalfiai.com"
+ACCOUNT="${AOS_SOPHIA_EMAIL:-sophia@amalfiai.com}"
+CC="${AOS_EMAIL_CC:-josh@amalfiai.com,salah@amalfiai.com}"
 
 # Load service role key from secrets file (bypasses RLS so scheduler can read status=approved rows)
 ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
@@ -21,6 +21,39 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 # Use service role key if available, otherwise fall back to anon key
 API_KEY="${SUPABASE_SERVICE_ROLE_KEY:-$ANON_KEY}"
+
+# ── KILL SWITCH + OOO GATE — must be checked before sending anything ──────────
+
+if [[ -f "${HOME}/.openclaw/KILL_SWITCH" ]]; then
+  echo "[email-scheduler] KILL SWITCH file active — all email sending suppressed."
+  exit 0
+fi
+
+export _KS_RAW=$(curl -s \
+  "${SUPABASE_URL}/rest/v1/kill_switch?id=eq.00000000-0000-0000-0000-000000000001&select=status" \
+  -H "apikey: ${API_KEY}" -H "Authorization: Bearer ${API_KEY}")
+_KS=$(python3 -c "import json,os; rows=json.loads(os.environ['_KS_RAW']); print(rows[0]['status'] if rows else 'running')" 2>/dev/null || echo "running")
+if [[ "$_KS" != "running" ]]; then
+  echo "[email-scheduler] Kill switch is '$_KS' — all email sending suppressed."
+  exit 0
+fi
+
+export _OOO_RAW=$(curl -s \
+  "${SUPABASE_URL}/rest/v1/system_config?key=eq.sophia_ooo&select=value" \
+  -H "apikey: ${API_KEY}" -H "Authorization: Bearer ${API_KEY}")
+_OOO=$(python3 -c "
+import json, os
+rows = json.loads(os.environ['_OOO_RAW'])
+if not rows: print('false')
+else:
+    v = rows[0].get('value','{}')
+    obj = json.loads(v) if isinstance(v,str) else v
+    print('true' if obj.get('enabled') else 'false')
+" 2>/dev/null || echo "false")
+if [[ "$_OOO" == "true" ]]; then
+  echo "[email-scheduler] OOO mode active — all email sending suppressed."
+  exit 0
+fi
 
 export SUPABASE_URL API_KEY ACCOUNT CC
 
@@ -250,7 +283,8 @@ for r in rows:
 PY
 
 # ── Retainer conversion check (runs once per day) ─────────────────────────────
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 GATE_FILE="$WS/tmp/retainer-pitch-checked-$(date '+%Y-%m-%d').flag"
 mkdir -p "$WS/tmp"
 
@@ -420,7 +454,7 @@ for client in candidates:
 
     try:
         supa_post('email_queue', {
-            'from_email': 'sophia@amalfiai.com',
+            'from_email': '${AOS_SOPHIA_EMAIL:-sophia@amalfiai.com}',
             'to_email': email,
             'subject': subject,
             'body': body,

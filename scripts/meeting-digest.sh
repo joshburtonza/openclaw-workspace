@@ -11,7 +11,8 @@
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
 source "$WS/scripts/lib/task-helpers.sh"
@@ -43,7 +44,7 @@ TASK_ID=$(task_create "Meeting Digest" "Processing ${#inbox_files[@]} transcript
 KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 MODEL="claude-sonnet-4-6"
 
 export KEY SUPABASE_URL BOT_TOKEN CHAT_ID MODEL INBOX ARCHIVE JOURNAL WS

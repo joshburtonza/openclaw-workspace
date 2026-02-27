@@ -7,11 +7,12 @@
 set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 LOG="$WS/out/memory-writer.log"
 
@@ -33,7 +34,7 @@ KEY          = os.environ['KEY']
 SUPABASE_URL = os.environ['SUPABASE_URL']
 WS           = os.environ['WS']
 HAIKU_MODEL  = 'claude-haiku-4-5-20251001'
-BATCH_SIZE   = 20
+BATCH_SIZE   = 10
 
 def supa_get(path):
     req = urllib.request.Request(
@@ -140,15 +141,16 @@ def upsert_agent_memory(agent, scope, memory_type, content, confidence=0.7):
             'content': content, 'confidence': confidence,
         })
 
-def claude_haiku(prompt):
+def claude_haiku(system_prompt, user_prompt):
     env = {k: v for k, v in os.environ.items() if k not in ('CLAUDECODE', 'CLAUDE_CODE')}
     tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, prefix='/tmp/mw-')
-    tmp.write(prompt)
+    tmp.write(user_prompt)
     tmp.close()
     try:
         r = subprocess.run(
-            ['claude', '--print', '--model', HAIKU_MODEL, '--dangerously-skip-permissions'],
-            stdin=open(tmp.name), capture_output=True, text=True, timeout=60, env=env,
+            ['claude', '--print', '--model', HAIKU_MODEL, '--dangerously-skip-permissions',
+             '--system-prompt', system_prompt],
+            stdin=open(tmp.name), capture_output=True, text=True, timeout=180, env=env,
         )
         return r.stdout.strip()
     except Exception as e:
@@ -159,15 +161,39 @@ def claude_haiku(prompt):
 
 # ── Fetch unprocessed signals ─────────────────────────────────────────────────
 
-signals = supa_get(
+signals_raw = supa_get(
     f"interaction_log?processed=eq.false"
+    f"&signal_type=neq.claude_session"   # exclude internal system session logs
     f"&order=timestamp.asc&limit={BATCH_SIZE}"
     f"&select=id,actor,user_id,signal_type,signal_data,timestamp"
 )
 
-if not signals:
+# Also mark any unprocessed claude_session signals as processed (skip them)
+session_signals = supa_get(
+    f"interaction_log?processed=eq.false&signal_type=eq.claude_session"
+    f"&select=id&limit=50"
+)
+for s in (session_signals or []):
+    supa_patch(f"interaction_log?id=eq.{s['id']}", {'processed': True, 'notes': 'skipped: internal session log'})
+
+if not signals_raw:
     print("Nothing to process.")
     raise SystemExit(0)
+
+# Sanitize signal_data — truncate any long text strings to prevent prompt injection confusion
+def sanitize_signal(s):
+    sd = s.get('signal_data') or {}
+    if isinstance(sd, dict):
+        clean = {}
+        for k, v in sd.items():
+            if isinstance(v, str) and len(v) > 300:
+                clean[k] = v[:300] + '... [truncated]'
+            else:
+                clean[k] = v
+        s = dict(s, signal_data=clean)
+    return s
+
+signals = [sanitize_signal(s) for s in signals_raw]
 
 print(f"Processing {len(signals)} signal(s)...")
 
@@ -215,9 +241,9 @@ Rules:
 - Skip user_model_updates or agent_memories sections if nothing meaningful to infer
 - Return ONLY the JSON array, no explanation"""
 
-prompt = f"{SYSTEM}\n\nSignals:\n{signals_text}"
+user_prompt = f"Signals:\n{signals_text}"
 
-raw = claude_haiku(prompt)
+raw = claude_haiku(SYSTEM, user_prompt)
 if not raw:
     print("  [warn] Empty Haiku response — marking signals processed anyway")
     for s in signals:

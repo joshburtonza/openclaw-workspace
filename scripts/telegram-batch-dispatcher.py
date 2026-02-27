@@ -15,10 +15,11 @@ import sys, time, os, subprocess
 if len(sys.argv) < 2:
     sys.exit(1)
 
-chat_id    = sys.argv[1]
-group_hist = sys.argv[2] if len(sys.argv) > 2 else ''
+chat_id      = sys.argv[1]
+group_hist   = sys.argv[2] if len(sys.argv) > 2 else ''
+user_profile = sys.argv[3] if len(sys.argv) > 3 else 'josh'
 
-WS         = '/Users/henryburton/.openclaw/workspace-anthropic'
+WS = os.environ.get('AOS_ROOT', '/Users/henryburton/.openclaw/workspace-anthropic')
 batch_file = f"{WS}/tmp/tg-batch-{chat_id}.txt"
 last_file  = f"{WS}/tmp/tg-batch-{chat_id}.last"
 
@@ -62,4 +63,6 @@ subprocess.run([
     chat_id,
     combined,
     group_hist,
+    'text',
+    user_profile,
 ])

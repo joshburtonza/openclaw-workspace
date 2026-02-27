@@ -62,6 +62,9 @@ Return **exactly** this format — no preamble:
 - [insight for specific verticals: legal / recruitment / logistics / finance / property]
 (2–4 bullets)
 
+## Named Prospects / Validation Pipeline
+Extract only when source explicitly names a company or contact with a stated interest level or next validation step. Format each bullet as: [Company] — [Contact name(s)] — [Vertical] — [Interest signal: quoted or paraphrased] — [Next step]. Omit section entirely if source contains no named prospects with intent signals.
+
 ## Workflow Productisation Candidates
 - [a specific recurring task pattern from this source that could be encoded as a reusable Claude skill — name the task, the trigger, and the expected output]
 (1–3 bullets; omit section if source contains no repeatable task patterns)
@@ -81,6 +84,12 @@ One word only — low, medium, or high — rating how complete and substantive t
 ## SA / Emerging Market Extraction Rule
 
 **Mandatory:** If the source mentions a named SA company, vertical, or AI deployment, always populate `## South Africa / Emerging Market Signals` and map findings to active Amalfi AI client verticals (logistics, legal, recruitment, property, professional services) under `## Client-Relevant Intelligence`. Do not leave these sections empty when SA-relevant content is present.
+
+---
+
+## Validation Pipeline Rule
+
+**VALIDATION PIPELINE RULE:** If source names a specific prospect (company or person) with commit signals or stated interest, always populate `## Named Prospects / Validation Pipeline`. This feeds the validation-first GTM model — commit signals from named contacts must be surfaced before dev spend is authorised.
 
 ---
 

@@ -5,12 +5,49 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 API_KEY="${SUPABASE_SERVICE_ROLE_KEY}"
+
+# ── Kill switch check — halt if Mission Control says stopped ──────────────────
+
+if [[ -f "${HOME}/.openclaw/KILL_SWITCH" ]]; then
+  echo "[sophia-outbound-poller] KILL SWITCH active — holding all outbound. Exiting."
+  exit 0
+fi
+
+export _KS_STATUS=$(curl -s \
+  "${SUPABASE_URL}/rest/v1/kill_switch?id=eq.00000000-0000-0000-0000-000000000001&select=status" \
+  -H "apikey: ${API_KEY}" -H "Authorization: Bearer ${API_KEY}")
+_KS=$(python3 -c "import json,os; rows=json.loads(os.environ['_KS_STATUS']); print(rows[0]['status'] if rows else 'running')")
+if [[ "$_KS" != "running" ]]; then
+  echo "[sophia-outbound-poller] Kill switch is '$_KS' — holding all outbound. Exiting."
+  exit 0
+fi
+
+# ── OOO check — halt if Josh is OOO ──────────────────────────────────────────
+
+export _OOO_RAW=$(curl -s \
+  "${SUPABASE_URL}/rest/v1/system_config?key=eq.sophia_ooo&select=value" \
+  -H "apikey: ${API_KEY}" -H "Authorization: Bearer ${API_KEY}")
+_OOO=$(python3 -c "
+import json, os
+rows = json.loads(os.environ['_OOO_RAW'])
+if not rows:
+    print('false')
+else:
+    v = rows[0].get('value', '{}')
+    obj = json.loads(v) if isinstance(v, str) else v
+    print('true' if obj.get('enabled') else 'false')
+")
+if [[ "$_OOO" == "true" ]]; then
+  echo "[sophia-outbound-poller] OOO mode active — holding all outbound. Exiting."
+  exit 0
+fi
 
 # ── Fetch one pending task ────────────────────────────────────────────────────
 

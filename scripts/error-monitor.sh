@@ -95,6 +95,9 @@ for ERR_LOG in "$OUT_DIR"/*.err.log; do
   [[ "$FILE_MOD" -le "$LAST_CHECK" ]] && continue
 
   AGENT_NAME=$(basename "$ERR_LOG" .err.log)
+
+  # Skip self-monitoring — restart failures already alerted via Telegram; monitoring own log creates self-triggering loops
+  [[ "$AGENT_NAME" == "error-monitor" ]] && continue
   NEW_LINES=$(tail -20 "$ERR_LOG" 2>/dev/null)
   [[ -z "$NEW_LINES" ]] && continue
 

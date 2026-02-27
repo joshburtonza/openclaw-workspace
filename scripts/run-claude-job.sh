@@ -11,7 +11,8 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 PROMPT_FILE="${1:-}"
 JOB_NAME="${2:-$(basename "${PROMPT_FILE%.md}")}"
-WS="/Users/henryburton/.openclaw/workspace-anthropic"
+AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
+WS="$AOS_ROOT"
 
 if [[ -z "$PROMPT_FILE" || ! -f "$PROMPT_FILE" ]]; then
   echo "Usage: $0 <prompt-file> [job-name]" >&2

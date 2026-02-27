@@ -15,7 +15,7 @@ source "$WORKSPACE/scripts/lib/task-helpers.sh"
 
 unset CLAUDECODE
 
-SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
+SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 DASHBOARD_MD="$WORKSPACE/data/dashboard.md"
 DASHBOARD_JSON="$WORKSPACE/data/dashboard.json"
