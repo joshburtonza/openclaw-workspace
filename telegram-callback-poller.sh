@@ -486,6 +486,116 @@ def handle_finances(chat_id):
         msg += "\n\n<i>No data yet. Add debts with /debt, income entries via Mission Control.</i>"
     tg_send(chat_id, msg)
 
+# ── Handle /log command (NLU-powered) ────────────────────────────────────────
+def handle_log_transaction(chat_id, text):
+    """
+    NLU finance logger. Accepts natural language:
+      /log just got 20k from Ascend
+      /log paid FNB card 9500
+      /log vanta paid their 5500 retainer
+      /log expense 1200 cursor sub
+    Claude extracts type/amount/category/description, then we confirm with inline buttons.
+    """
+    import datetime as _dt, tempfile as _tf, os as _os, subprocess as _sp, json as _json
+
+    raw = text[4:].strip()  # strip "/log"
+    if not raw:
+        tg_send(chat_id,
+            "Just describe the transaction naturally:\n"
+            "<code>/log just got paid 20k from Ascend</code>\n"
+            "<code>/log paid FNB card R9500</code>\n"
+            "<code>/log Vanta paid their 5500 retainer</code>"
+        )
+        return
+
+    today = _dt.date.today().isoformat()
+    extract_prompt = f"""Extract a financial transaction from this message. Reply ONLY with valid JSON, no explanation.
+
+Message: "{raw}"
+Today's date: {today}
+
+JSON schema:
+{{
+  "type": "income" or "expense",
+  "amount": number (ZAR, no currency symbol),
+  "category": string or null  (income: client name; expense: Debt Payment/Business Sub/Personal Sub/Drawings/Business Expense/Personal Expense/Other),
+  "description": string or null (short description of the transaction),
+  "date": "YYYY-MM-DD"
+}}
+
+Rules:
+- If the message mentions receiving money, a payment received, retainer paid, invoice settled → type = "income"
+- If it mentions paying, spending, debt payment, subscription, expense → type = "expense"
+- Extract the amount as a plain number (e.g. "20k" = 20000, "R9,500" = 9500)
+- date defaults to today ({today}) unless a specific date is mentioned"""
+
+    tmp = _tf.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, prefix='/tmp/fin-extract-')
+    tmp.write(extract_prompt)
+    tmp.close()
+
+    try:
+        env = _os.environ.copy()
+        env['UNSET_CLAUDECODE'] = '1'
+        result = _sp.run(
+            ['bash', '-c', f'unset CLAUDECODE && claude --print --model claude-haiku-4-5-20251001 < {tmp.name}'],
+            capture_output=True, text=True, timeout=30, env=env
+        )
+        raw_json = result.stdout.strip()
+        # Strip markdown code fences if present
+        if raw_json.startswith('```'):
+            raw_json = '\n'.join(raw_json.split('\n')[1:])
+            raw_json = raw_json.rstrip('`').strip()
+        tx = _json.loads(raw_json)
+    except Exception as ex:
+        tg_send(chat_id, f"Couldn't parse that — try: <code>/log income 20000 Ascend LC March retainer</code>\n<i>({ex})</i>")
+        return
+    finally:
+        try: _os.unlink(tmp.name)
+        except: pass
+
+    tx_type = tx.get('type', 'expense')
+    amount  = float(tx.get('amount', 0))
+    cat     = tx.get('category') or ''
+    desc    = tx.get('description') or ''
+    date    = tx.get('date', today)
+
+    if amount <= 0:
+        tg_send(chat_id, "Couldn't extract an amount. Try: <code>/log income 20000 Ascend LC</code>")
+        return
+
+    # Store pending transaction in temp file, keyed by chat_id
+    pending_file = f"/Users/henryburton/.openclaw/workspace-anthropic/tmp/fin_pending_{chat_id}.json"
+    pending = {'type': tx_type, 'amount': amount, 'category': cat or None, 'description': desc or None, 'date': date}
+    with open(pending_file, 'w') as f:
+        _json.dump(pending, f)
+
+    sign  = '+' if tx_type == 'income' else '-'
+    emoji = '' if tx_type == 'income' else ''
+    label = desc or cat or tx_type
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={
+                'chat_id':    chat_id,
+                'parse_mode': 'HTML',
+                'text': (
+                    f"{emoji} <b>Got it — confirm this?</b>\n\n"
+                    f"Type:   <b>{tx_type.capitalize()}</b>\n"
+                    f"Amount: <b>{sign}R{amount:,.0f}</b>\n"
+                    f"{'Category: ' + cat + chr(10) if cat else ''}"
+                    f"{'Description: ' + desc + chr(10) if desc else ''}"
+                    f"Date:   <b>{date}</b>"
+                ),
+                'reply_markup': {'inline_keyboard': [[
+                    {'text': ' Confirm', 'callback_data': f'fin_confirm:{chat_id}'},
+                    {'text': ' Cancel',  'callback_data': f'fin_cancel:{chat_id}'},
+                ]]},
+            },
+            timeout=10
+        )
+    except Exception as ex:
+        tg_send(chat_id, f"Error sending confirmation: {ex}")
+
 # ── Handle /remind command ────────────────────────────────────────────────────
 def handle_remind(chat_id, text):
     """
@@ -926,6 +1036,9 @@ def handle_help(chat_id):
         "/enrich — run Apollo+Hunter+Apify enrichment on pending leads\n"
         "/enrich email@co.com — verify a single email\n"
         "/available — Resume normal ops\n"
+        "/finances — P&L snapshot\n"
+        "/log income 20000 Ascend LC March retainer\n"
+        "/log expense 9500 Debt Payment FNB CC\n"
         "research: Title\\nContent — queue research for digest\n\n"
         "✅ <b>Email approvals</b> — tap the buttons on cards"
     )
@@ -959,6 +1072,41 @@ for u in updates:
         try:
             action, email_id = data.split(':', 1)
         except ValueError:
+            continue
+
+        # ── Finance transaction confirm/cancel ────────────────────────────────
+        if action in ('fin_confirm', 'fin_cancel'):
+            import json as _jj, os as _oo
+            pending_file = f"/Users/henryburton/.openclaw/workspace-anthropic/tmp/fin_pending_{email_id}.json"
+            if action == 'fin_cancel':
+                try: _oo.unlink(pending_file)
+                except: pass
+                tg_send(chat_id, "Transaction cancelled.")
+            else:
+                try:
+                    with open(pending_file) as _f:
+                        tx = _jj.load(_f)
+                    resp = requests.post(
+                        f"{SUPABASE_URL}/rest/v1/finance_transactions",
+                        json=tx,
+                        headers={'apikey': SERVICE_KEY, 'Authorization': f'Bearer {SERVICE_KEY}', 'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
+                        timeout=10
+                    )
+                    try: _oo.unlink(pending_file)
+                    except: pass
+                    if resp.ok:
+                        sign  = '+' if tx['type'] == 'income' else '-'
+                        emoji = '' if tx['type'] == 'income' else ''
+                        tg_send(chat_id,
+                            f"{emoji} <b>Logged!</b>  {sign}R{tx['amount']:,.0f}"
+                            f"{(' — ' + (tx.get('description') or tx.get('category', ''))) if (tx.get('description') or tx.get('category')) else ''}"
+                        )
+                    else:
+                        tg_send(chat_id, f"DB error: {resp.text[:150]}")
+                except FileNotFoundError:
+                    tg_send(chat_id, "Pending transaction expired — please re-send /log.")
+                except Exception as ex:
+                    tg_send(chat_id, f"Error confirming: {ex}")
             continue
 
         if action not in ('approve', 'hold', 'adjust', 'remind_done', 'remind_snooze',
@@ -1305,13 +1453,24 @@ for u in updates:
             img_path  = f"{WS}/tmp/tg-photo-{uid_str}.jpg"
             with open(img_path, 'wb') as f:
                 f.write(img_data)
-            caption_part = f"\nCaption: {caption}" if caption else ""
-            user_display = 'Salah' if user_profile == 'salah' else 'Josh'
-            user_text = f"[Photo from {user_display}]{caption_part}\nImage file: {img_path}"
-            subprocess.Popen([
-                'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
-                str(chat_id), user_text, group_history_file, get_reply_mode(chat_id), user_profile,
-            ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
+
+            # ── Route: Blender 3D scene generation ───────────────────────────
+            cap_lower = (caption or '').lower()
+            if 'blender' in cap_lower:
+                subprocess.Popen(
+                    ['bash', f'{WS}/scripts/video-editor/tg-blender-from-image.sh',
+                     str(chat_id), img_path, caption or ''],
+                    stdout=open(f'{WS}/out/blender-from-image.log', 'a'),
+                    stderr=open(f'{WS}/out/blender-from-image.err.log', 'a')
+                )
+            else:
+                caption_part = f"\nCaption: {caption}" if caption else ""
+                user_display = 'Salah' if user_profile == 'salah' else 'Josh'
+                user_text = f"[Photo from {user_display}]{caption_part}\nImage file: {img_path}"
+                subprocess.Popen([
+                    'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
+                    str(chat_id), user_text, group_history_file, get_reply_mode(chat_id), user_profile,
+                ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
         except Exception as e:
             tg_send(chat_id, f'❌ Failed to process photo: {e}')
         continue
@@ -1380,27 +1539,72 @@ for u in updates:
     if video or video_note:
         try:
             media     = video or video_note
-            label     = 'Round video' if video_note else 'Video'
-            thumb     = media.get('thumbnail') or media.get('thumb')
-            thumb_path = None
-            if thumb and thumb.get('file_id'):
-                try:
-                    thumb_data = tg_download(thumb['file_id'])
-                    thumb_path = f"{WS}/tmp/tg-video-thumb-{uid_str}.jpg"
-                    with open(thumb_path, 'wb') as f:
-                        f.write(thumb_data)
-                except Exception:
-                    thumb_path = None  # fall back to no-thumbnail description
-            caption_part = f"\nCaption: {caption}" if caption else ""
-            user_display = 'Salah' if user_profile == 'salah' else 'Josh'
-            if thumb_path:
-                user_text = f"[{label} from {user_display} — showing thumbnail]{caption_part}\nThumbnail file: {thumb_path}"
+            file_id   = media.get('file_id', '')
+            file_size = media.get('file_size', 0) or 0
+            BOT_LIMIT = 20 * 1024 * 1024  # Telegram bot API download limit
+
+            # Caption becomes the title; fall back to timestamp-based name
+            title = caption.strip() if caption else f"Video {uid_str[:8]}"
+
+            _too_big_msg = (
+                'Upload directly to Google Drive instead:\n'
+                '<a href="https://drive.google.com/drive/folders/1mTC-bONcjjo2_-NihFTH4Aum-6GQqsLx">Video Queue folder</a>\n\n'
+                'It will be processed at the next poll (6am, 9am, 2pm, 4pm SAST).\n\n'
+                '<i>Or compress it below 20 MB and resend here.</i>'
+            )
+
+            if not file_id:
+                tg_send(chat_id, '⚠️ Video received but no file_id available.')
+            elif file_size > BOT_LIMIT:
+                tg_send(chat_id,
+                    f'⚠️ Video is {file_size // (1024*1024)} MB — above the 20 MB bot API limit.\n\n'
+                    + _too_big_msg
+                )
             else:
-                user_text = f"[{label} from {user_display} received — no thumbnail]{caption_part}"
-            subprocess.Popen([
-                'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
-                str(chat_id), user_text, group_history_file, get_reply_mode(chat_id), user_profile,
-            ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
+                # file_size may be 0 if Telegram omitted it (common for large files)
+                # Attempt download; if Telegram rejects as too big, redirect gracefully
+                _video_dl_ok = True
+                try:
+                    video_data = tg_download(file_id)
+                except Exception as _dl_err:
+                    _video_dl_ok = False
+                    _dl_str = str(_dl_err).lower()
+                    if 'file is too big' in _dl_str or 'too big' in _dl_str:
+                        tg_send(chat_id,
+                            '⚠️ Video is too large for the bot API (20 MB limit).\n\n'
+                            + _too_big_msg
+                        )
+                    else:
+                        tg_send(chat_id, f'❌ Failed to download video: {_dl_err}')
+                if _video_dl_ok:
+                    safe_title = re.sub(r'[^\w\s-]', '', title)[:50].strip()
+                    video_path = f"{WS}/tmp/tg-video-{uid_str}.mp4"
+                    with open(video_path, 'wb') as f:
+                        f.write(video_data)
+
+                    # ── Route: analyse (watch/learn) vs pipeline (process) ────
+                    cap_lower = (caption or '').lower()
+                    is_analyse = any(kw in cap_lower for kw in (
+                        'watch', 'learn', 'ref', 'reference', 'analyse', 'analyze',
+                        'study', 'review', 'technique', 'inspect', 'breakdown',
+                    ))
+
+                    if is_analyse:
+                        tg_send(chat_id, f'👁 Got it ({len(video_data) // 1024}KB). Watching and analysing...')
+                        subprocess.Popen(
+                            ['bash', f'{WS}/scripts/video-editor/tg-analyse-video.sh',
+                             str(chat_id), video_path, caption or ''],
+                            stdout=open(f'{WS}/out/video-poller.log', 'a'),
+                            stderr=open(f'{WS}/out/video-poller.err.log', 'a')
+                        )
+                    else:
+                        tg_send(chat_id, f'📥 Got it ({len(video_data) // 1024}KB). Starting pipeline...\n\n<i>Trimming silence, generating captions, rendering — usually 2 to 4 min.</i>\n\n<i>Tip: add caption "watch" or "learn" to get an editing technique analysis instead.</i>')
+                        subprocess.Popen(
+                            ['bash', f'{WS}/scripts/video-editor/tg-process-and-reply.sh',
+                             str(chat_id), video_path, safe_title or 'Video'],
+                            stdout=open(f'{WS}/out/video-poller.log', 'a'),
+                            stderr=open(f'{WS}/out/video-poller.err.log', 'a')
+                        )
         except Exception as e:
             tg_send(chat_id, f'❌ Failed to process video: {e}')
         continue
@@ -1425,16 +1629,27 @@ for u in updates:
                         or ext in ('txt','md','csv','json','log','yaml','yml','toml','ini','xml','html','htm','sh','py','js','ts'))
             is_image = mime.startswith('image/') or ext in ('jpg','jpeg','png','gif','webp','bmp','svg')
             is_pdf   = mime == 'application/pdf' or ext == 'pdf'
+            is_video = mime.startswith('video/') or ext in ('mp4','mov','avi','mkv','webm')
 
             # Telegram Bot API cannot download files > 20 MB
             BOT_LIMIT = 20 * 1024 * 1024
             if fsize > BOT_LIMIT:
-                tg_send(chat_id,
-                    f"⚠️ <b>{fname_safe}</b> is {fsize // (1024*1024)} MB — the bot API limit is 20 MB.\n\n"
-                    "To process a large transcript, paste the content directly:\n"
-                    "<code>research: Title\n[paste content here]</code>\n\n"
-                    "The research digest extracts the key insights automatically."
-                )
+                if is_video:
+                    # Large video document → redirect to Google Drive, not transcript paste
+                    tg_send(chat_id,
+                        f"⚠️ <b>{fname_safe}</b> is {fsize // (1024*1024)} MB — above the 20 MB bot API limit.\n\n"
+                        "Upload it directly to Google Drive:\n"
+                        '<a href="https://drive.google.com/drive/folders/1mTC-bONcjjo2_-NihFTH4Aum-6GQqsLx">Video Queue folder</a>\n\n'
+                        "It will be processed at the next poll (6am, 9am, 2pm, 4pm SAST).\n\n"
+                        "<i>Or compress it below 20 MB and resend here.</i>"
+                    )
+                else:
+                    tg_send(chat_id,
+                        f"⚠️ <b>{fname_safe}</b> is {fsize // (1024*1024)} MB — the bot API limit is 20 MB.\n\n"
+                        "To process a large transcript, paste the content directly:\n"
+                        "<code>research: Title\n[paste content here]</code>\n\n"
+                        "The research digest extracts the key insights automatically."
+                    )
                 continue
 
             # Download the file — all types, within size limit
@@ -1497,6 +1712,32 @@ for u in updates:
                     str(chat_id), user_text, group_history_file, get_reply_mode(chat_id), user_profile,
                 ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
 
+            elif is_video:
+                # .mp4/.mov document → route by caption
+                title = caption.strip() if caption else fname_safe.rsplit('.', 1)[0]
+                safe_title = re.sub(r'[^\w\s-]', '', title)[:50].strip() or 'Video'
+                cap_lower = (caption or '').lower()
+                is_analyse = any(kw in cap_lower for kw in (
+                    'watch', 'learn', 'ref', 'reference', 'analyse', 'analyze',
+                    'study', 'review', 'technique', 'inspect', 'breakdown',
+                ))
+                if is_analyse:
+                    tg_send(chat_id, f'👁 Got it ({fsize // 1024}KB). Watching and analysing...')
+                    subprocess.Popen(
+                        ['bash', f'{WS}/scripts/video-editor/tg-analyse-video.sh',
+                         str(chat_id), doc_path, caption or ''],
+                        stdout=open(f'{WS}/out/video-poller.log', 'a'),
+                        stderr=open(f'{WS}/out/video-poller.err.log', 'a')
+                    )
+                else:
+                    tg_send(chat_id, f'📥 Got it ({fsize // 1024}KB). Starting pipeline...\n\n<i>Trimming silence, generating captions, rendering — usually 2 to 4 min.</i>')
+                    subprocess.Popen(
+                        ['bash', f'{WS}/scripts/video-editor/tg-process-and-reply.sh',
+                         str(chat_id), doc_path, safe_title],
+                        stdout=open(f'{WS}/out/video-poller.log', 'a'),
+                        stderr=open(f'{WS}/out/video-poller.err.log', 'a')
+                    )
+
             else:
                 # Other binary files: pass path + type — Claude can attempt to read
                 mime_display = mime or 'unknown type'
@@ -1509,6 +1750,79 @@ for u in updates:
 
         except Exception as e:
             tg_send(chat_id, f'❌ Failed to process document: {e}')
+        continue
+
+    # ── Reference video URL analysis ─────────────────────────────────────────
+    # Detect YouTube/TikTok/Instagram/Twitter URLs sent for editing technique analysis
+    _VIDEO_URL_PAT = re.compile(
+        r'https?://(?:www\.)?(?:'
+        r'(?:youtube\.com/(?:watch|shorts)|youtu\.be/)'
+        r'|(?:tiktok\.com/@[^/]+/video|vm\.tiktok\.com)'
+        r'|(?:instagram\.com/(?:p|reel|reels))'
+        r'|(?:twitter\.com|x\.com)/[^/]+/status'
+        r')[^\s]*',
+        re.IGNORECASE
+    )
+    _url_match = _VIDEO_URL_PAT.search(text or '')
+    if _url_match and user_profile != 'salah':
+        video_url = _url_match.group(0)
+        try:
+            tg_send(chat_id, f'🎬 Downloading reference video for analysis...\n<code>{video_url[:80]}</code>')
+            import tempfile as _tf, glob as _glob
+            dl_dir = _tf.mkdtemp(prefix='/tmp/ref-video-')
+            # Download best quality up to 720p
+            dl_result = subprocess.run(
+                ['yt-dlp', '-f', 'best[height<=720][ext=mp4]/best[height<=720]/best',
+                 '--merge-output-format', 'mp4',
+                 '-o', os.path.join(dl_dir, 'video.%(ext)s'),
+                 '--no-playlist', '--quiet', video_url],
+                capture_output=True, text=True, timeout=120
+            )
+            dl_files = _glob.glob(os.path.join(dl_dir, '*.mp4')) + _glob.glob(os.path.join(dl_dir, '*.webm'))
+            if dl_result.returncode != 0 or not dl_files:
+                tg_send(chat_id, f'⚠️ Could not download video ({dl_result.returncode}). It may be private or geo-blocked.\n\n{dl_result.stderr[:300]}')
+            else:
+                dl_path = dl_files[0]
+                # Extract frames every 2.5s → collage for Claude
+                frames_dir = os.path.join(dl_dir, 'frames')
+                os.makedirs(frames_dir, exist_ok=True)
+                duration = float(subprocess.check_output(
+                    ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                     '-of', 'default=noprint_wrappers=1:nokey=1', dl_path],
+                    text=True).strip() or '0')
+                n_frames = min(9, max(4, int(duration / 2.5)))
+                subprocess.run(
+                    ['ffmpeg', '-i', dl_path, '-vf',
+                     f'fps=1/{duration/n_frames:.1f},scale=360:-2',
+                     '-frames:v', str(n_frames),
+                     os.path.join(frames_dir, 'f%02d.jpg')],
+                    capture_output=True
+                )
+                frame_files = sorted(_glob.glob(os.path.join(frames_dir, '*.jpg')))
+                frame_list = '\n'.join(f'Frame file: {f}' for f in frame_files)
+                analyse_prompt = (
+                    f"[Reference video analysis request from Josh]\n"
+                    f"URL: {video_url}\n"
+                    f"Duration: {int(duration)}s\n\n"
+                    f"Josh sent this video to study the editing techniques. Analyse the frames and give a detailed breakdown:\n\n"
+                    f"1. CAPTION STYLE — font, size, position, color, animation (appear word-by-word? bounce? fade?), outline/shadow\n"
+                    f"2. MOTION GRAPHICS — lower thirds, overlays, animated text, icons, arrows, callouts\n"
+                    f"3. TRANSITIONS — cuts, zooms, swipes, jump cuts\n"
+                    f"4. COLOR GRADING — warm/cool, contrast, saturation style\n"
+                    f"5. PACING — estimated cuts per minute, fast/slow rhythm\n"
+                    f"6. REMOTION IMPLEMENTATION — specific suggestions for replicating these effects in our Remotion pipeline\n\n"
+                    f"{frame_list}"
+                )
+                subprocess.Popen([
+                    'bash', f'{WS}/scripts/telegram-claude-gateway.sh',
+                    str(chat_id), analyse_prompt, group_history_file, get_reply_mode(chat_id), user_profile,
+                ], stdout=subprocess.DEVNULL, stderr=open(GATEWAY_ERR_LOG, 'a'))
+                import shutil as _shutil
+                _shutil.rmtree(dl_dir, ignore_errors=True)
+        except subprocess.TimeoutExpired:
+            tg_send(chat_id, '⏱ Video download timed out after 2 min. Try a shorter clip.')
+        except Exception as _e:
+            tg_send(chat_id, f'❌ Reference video analysis failed: {_e}')
         continue
 
     # ── Text: commands + free-text → Claude ───────────────────────────────────
@@ -1637,6 +1951,10 @@ for u in updates:
     elif text_lower.startswith('/finances') or text_lower == '/finance':
         handle_finances(chat_id)
         log_signal(actor_id, actor_id, 'command_used', {'command': 'finances'})
+
+    elif text_lower.startswith('/log '):
+        handle_log_transaction(chat_id, text)
+        log_signal(actor_id, actor_id, 'command_used', {'command': 'log', 'text': text[:120]})
 
     elif text_lower.startswith('/help') or text_lower == '/start':
         handle_help(chat_id)

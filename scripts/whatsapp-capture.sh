@@ -126,7 +126,20 @@ try:
             wa_msg_ids_read.append(row.get('message_id', ''))
 
 except Exception as e:
-    print(f'Supabase fetch failed: {e} — falling back to local JSONL', file=sys.stderr)
+    import urllib.error as _ue
+    _is_table_missing = False
+    if isinstance(e, _ue.HTTPError) and e.code == 404:
+        try:
+            _err_body = json.loads(e.read())
+            if _err_body.get('code') == 'PGRST205':
+                _is_table_missing = True
+        except Exception:
+            pass
+    if _is_table_missing:
+        # Table not yet created — WhatsApp setup incomplete, not a runtime error
+        print('Supabase: whatsapp_messages table not yet created — apply supabase/migrations/004_whatsapp_messages.sql to enable', file=sys.stdout)
+    else:
+        print(f'Supabase fetch failed: {e} — falling back to local JSONL', file=sys.stderr)
 
 # ── Fallback: local JSONL file ────────────────────────────────────────────────
 if not supabase_ok and Path(MESSAGES_LOG).exists() and Path(MESSAGES_LOG).stat().st_size > 0:

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.amalfiai.apollo-sourcer</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/cold-outreach/source-leads-apollo.sh</string>
+        <string>--limit</string>
+        <string>30</string>
+    </array>
+
+    <!-- Monday and Thursday 8am SAST -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Weekday</key><integer>1</integer>
+            <key>Hour</key><integer>8</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>4</integer>
+            <key>Hour</key><integer>8</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/apollo-sourcer.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/apollo-sourcer.err.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

@@ -45,27 +45,35 @@ def tg_send(text, markup=None):
         pass
 
 def supa_patch(rid, body):
-    r = requests.patch(
-        f"{SUPABASE_URL}/rest/v1/notifications?id=eq.{rid}",
-        headers={
-            'apikey': KEY, 'Authorization': f'Bearer {KEY}',
-            'Content-Type': 'application/json', 'Prefer': 'return=minimal',
-        },
-        json=body, timeout=10
-    )
+    try:
+        r = requests.patch(
+            f"{SUPABASE_URL}/rest/v1/notifications?id=eq.{rid}",
+            headers={
+                'apikey': KEY, 'Authorization': f'Bearer {KEY}',
+                'Content-Type': 'application/json', 'Prefer': 'return=minimal',
+            },
+            json=body, timeout=10
+        )
+    except requests.exceptions.ConnectionError as e:
+        print(f'[reminder-poller] WARN: patch network error for {rid}: {e}', file=sys.stderr)
+        return False
     if r.status_code not in (200, 204):
         print(f'[reminder-poller] WARN: patch failed for {rid}: HTTP {r.status_code} {r.text[:100]}', file=sys.stderr)
         return False
     return True
 
 # Fetch all unread reminders
-resp = requests.get(
-    f"{SUPABASE_URL}/rest/v1/notifications",
-    params={'type': 'eq.reminder', 'status': 'eq.unread',
-            'select': 'id,title,body,metadata,priority'},
-    headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}'},
-    timeout=20
-)
+try:
+    resp = requests.get(
+        f"{SUPABASE_URL}/rest/v1/notifications",
+        params={'type': 'eq.reminder', 'status': 'eq.unread',
+                'select': 'id,title,body,metadata,priority'},
+        headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}'},
+        timeout=20
+    )
+except requests.exceptions.ConnectionError as e:
+    print(f"[reminder-poller] Network unavailable, skipping: {e}", file=sys.stderr)
+    raise SystemExit(0)
 if resp.status_code != 200:
     print(f"[reminder-poller] Supabase error {resp.status_code}: {resp.text[:200]}", file=sys.stderr)
     raise SystemExit(0)
