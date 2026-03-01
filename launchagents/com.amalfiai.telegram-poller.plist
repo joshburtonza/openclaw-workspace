@@ -15,6 +15,10 @@
     <key>KeepAlive</key>
     <true/>
 
+    <!-- Wait 10s before restarting after a crash — prevents rapid spin loops -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
     <key>RunAtLoad</key>
     <true/>
 
@@ -24,11 +28,13 @@
     <key>StandardErrorPath</key>
     <string>/Users/henryburton/.openclaw/workspace-anthropic/out/telegram-poller.err.log</string>
 
+    <!-- Standard priority — prevents macOS jetsam from killing this under memory pressure -->
     <key>ProcessType</key>
-    <string>Background</string>
+    <string>Standard</string>
 
-    <key>Nice</key>
-    <integer>5</integer>
+    <!-- Do not deprioritise I/O -->
+    <key>LowPriorityIO</key>
+    <false/>
 
     <key>EnvironmentVariables</key>
     <dict>
