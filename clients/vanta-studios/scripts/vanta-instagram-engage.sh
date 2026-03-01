@@ -27,7 +27,7 @@ SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${AOS_TELEGRAM_OWNER_CHAT_ID:-1140320036}"
-ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-}"
+OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 IG_USERNAME="${VANTA_INSTAGRAM_USERNAME:-}"
 IG_PASSWORD="${VANTA_INSTAGRAM_PASSWORD:-}"
 IG_SESSION_FILE="$ROOT/tmp/vanta-ig-session.json"
@@ -57,7 +57,7 @@ if ! node -e "require('@playwright/test')" &>/dev/null; then
   exit 1
 fi
 
-export SUPABASE_URL SERVICE_KEY BOT_TOKEN CHAT_ID ANTHROPIC_KEY
+export SUPABASE_URL SERVICE_KEY BOT_TOKEN CHAT_ID OPENAI_API_KEY
 export IG_USERNAME IG_PASSWORD IG_SESSION_FILE
 export MAX_COMMENTS_TODAY MAX_DMS_TODAY
 
@@ -72,7 +72,7 @@ generate_comment() {
   python3 - <<'PY'
 import os, json, urllib.request
 
-KEY    = os.environ.get('ANTHROPIC_KEY', os.environ.get('ANTHROPIC_API_KEY',''))
+KEY    = os.environ.get('OPENAI_API_KEY', '')
 handle = os.environ.get('_VANTA_HANDLE','')
 spec   = os.environ.get('_VANTA_SPEC','photographer')
 caption = os.environ.get('_VANTA_CAPTION','')[:150]
@@ -87,19 +87,19 @@ Rules:
 - Output ONLY the comment text, nothing else."""
 
 data = json.dumps({
-    'model': 'claude-haiku-4-5-20251001',
-    'max_tokens': 60,
+    'model': 'gpt-4o',
     'messages': [{'role': 'user', 'content': prompt}],
+    'max_tokens': 60,
 }).encode()
 
 req = urllib.request.Request(
-    'https://api.anthropic.com/v1/messages', data=data,
-    headers={'x-api-key': KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json'}
+    'https://api.openai.com/v1/chat/completions', data=data,
+    headers={'Authorization': 'Bearer ' + KEY, 'Content-Type': 'application/json'}
 )
 try:
     with urllib.request.urlopen(req, timeout=15) as r:
         resp = json.loads(r.read())
-    print(resp['content'][0]['text'].strip())
+    print(resp['choices'][0]['message']['content'].strip())
 except Exception as e:
     print(f'Great composition on this one — the lighting really works.', file=None)
     import sys; print('Great composition on this one — the lighting really works.')
@@ -268,13 +268,13 @@ async function main() {
         comment_text = execSync(
           `bash -c 'source /Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler && python3 -c "
 import os,json,urllib.request
-key=os.environ.get(\\\"ANTHROPIC_API_KEY\\\",\\\"\\\")
+key=os.environ.get(\\\"OPENAI_API_KEY\\\",\\\"\\\")
 prompt=f\\\"Write ONE short Instagram comment (15-30 words) for a ${specs} photographer. Genuinely specific, sound like a real creative professional, no emojis/hashtags. Output ONLY the comment.\\\"
-data=json.dumps({\\\"model\\\":\\\"claude-haiku-4-5-20251001\\\",\\\"max_tokens\\\":60,\\\"messages\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":prompt}]}).encode()
-req=urllib.request.Request(\\\"https://api.anthropic.com/v1/messages\\\",data=data,headers={\\\"x-api-key\\\":key,\\\"anthropic-version\\\":\\\"2023-06-01\\\",\\\"Content-Type\\\":\\\"application/json\\\"})
+data=json.dumps({\\\"model\\\":\\\"gpt-4o\\\",\\\"messages\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":prompt}],\\\"max_tokens\\\":60}).encode()
+req=urllib.request.Request(\\\"https://api.openai.com/v1/chat/completions\\\",data=data,headers={\\\"Authorization\\\":\\\"Bearer \\\"+key,\\\"Content-Type\\\":\\\"application/json\\\"})
 try:
   r=urllib.request.urlopen(req,timeout=15)
-  print(json.loads(r.read())[\\\"content\\\"][0][\\\"text\\\"].strip())
+  print(json.loads(r.read())[\\\"choices\\\"][0][\\\"message\\\"][\\\"content\\\"].strip())
 except: print(\\\"The lighting and composition here are really well done.\\\")
 "'`,
           { encoding: 'utf8', timeout: 20000 }

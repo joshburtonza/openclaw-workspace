@@ -41,7 +41,7 @@ Examples of good messages:
 Reply with ONLY the message text. No quotes, no preamble.
 PROMPT
 
-MSG=$(claude --print --model claude-haiku-4-5-20251001 < "$PROMPT_TMP" 2>/dev/null | head -3)
+MSG=$(bash "$WORKSPACE/scripts/lib/openai-complete.sh" --model gpt-4o < "$PROMPT_TMP" 2>/dev/null | head -3)
 rm -f "$PROMPT_TMP"
 
 if [[ -z "$MSG" ]]; then

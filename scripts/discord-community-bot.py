@@ -47,7 +47,8 @@ SUPABASE_URL   = "https://afmpbtynucpbglwtbfuz.supabase.co"
 SUPABASE_KEY   = ENV.get("SUPABASE_SERVICE_ROLE_KEY", "")
 BOT_TOKEN_TG   = ENV.get("TELEGRAM_BOT_TOKEN", "")
 JOSH_CHAT_ID   = ENV.get("TELEGRAM_JOSH_CHAT_ID", "1140320036")
-MODEL          = "claude-haiku-4-5-20251001"
+MODEL          = "gpt-4o"
+OPENAI_COMPLETE = "/Users/henryburton/.openclaw/workspace-anthropic/scripts/lib/openai-complete.sh"
 
 # Channels where the bot responds to all messages (not just mentions)
 HELP_CHANNEL_PATTERNS = ["ask", "help", "question", "automat", "build"]
@@ -129,9 +130,10 @@ def generate_response(user_message: str, username: str, context: str = "") -> st
         env = os.environ.copy()
         env['PATH'] = '/opt/homebrew/bin:/usr/local/bin:' + env.get('PATH', '')
         env.pop('CLAUDECODE', None)
+        env['OPENAI_API_KEY'] = env.get('OPENAI_API_KEY') or ENV.get('OPENAI_API_KEY', '')
 
         result = subprocess.run(
-            ['claude', '--print', '--model', MODEL],
+            ['bash', OPENAI_COMPLETE, '--model', MODEL],
             stdin=open(tmp),
             capture_output=True,
             text=True,

@@ -17,7 +17,7 @@ SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${AOS_TELEGRAM_OWNER_CHAT_ID:-1140320036}"
-ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
+OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 LOG="$ROOT/out/vanta-outreach.log"
 
 # Max outreach emails per day — KEEP THIS LOW for quality
@@ -26,7 +26,7 @@ DAILY_CAP="${VANTA_DAILY_OUTREACH_CAP:-10}"
 mkdir -p "$ROOT/out"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] === vanta-outreach starting ===" | tee -a "$LOG"
 
-export SUPABASE_URL SERVICE_KEY BOT_TOKEN CHAT_ID ANTHROPIC_API_KEY DAILY_CAP
+export SUPABASE_URL SERVICE_KEY BOT_TOKEN CHAT_ID OPENAI_API_KEY DAILY_CAP
 
 python3 - <<'PY'
 import os, json, sys, re, datetime, urllib.request, urllib.parse
@@ -35,7 +35,7 @@ SUPABASE_URL    = os.environ['SUPABASE_URL']
 SERVICE_KEY     = os.environ['SERVICE_KEY']
 BOT_TOKEN       = os.environ['BOT_TOKEN']
 CHAT_ID         = os.environ['CHAT_ID']
-ANTHROPIC_KEY   = os.environ['ANTHROPIC_API_KEY']
+OPENAI_KEY      = os.environ.get('OPENAI_API_KEY', '')
 DAILY_CAP       = int(os.environ.get('DAILY_CAP', '10'))
 
 # ── Supabase helpers ──────────────────────────────────────────────────────────
@@ -165,24 +165,23 @@ Requirements:
 - Output ONLY: Subject: [line]\\n\\n[email body]. Nothing else."""
 
     data = json.dumps({
-        'model': 'claude-haiku-4-5-20251001',
-        'max_tokens': 400,
+        'model': 'gpt-4o',
         'messages': [{'role': 'user', 'content': prompt}],
+        'max_tokens': 400,
     }).encode()
 
     req = urllib.request.Request(
-        'https://api.anthropic.com/v1/messages',
+        'https://api.openai.com/v1/chat/completions',
         data=data,
         headers={
-            'x-api-key': ANTHROPIC_KEY,
-            'anthropic-version': '2023-06-01',
+            'Authorization': f'Bearer {OPENAI_KEY}',
             'Content-Type': 'application/json',
         }
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             resp = json.loads(r.read())
-        return resp['content'][0]['text'].strip()
+        return resp['choices'][0]['message']['content'].strip()
     except Exception as e:
         print(f'[outreach] Claude generation failed: {e}', file=sys.stderr)
         return None
