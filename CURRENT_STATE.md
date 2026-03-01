@@ -1,4 +1,4 @@
-# CURRENT STATE — 2026-02-28 01:00 UTC
+# CURRENT STATE — 2026-03-01 01:00 UTC
 > Auto-generated every night. Read this file for live operational context.
 
 ## Agent Health
@@ -13,6 +13,7 @@
   ✅ sophia-cron (exit 0)
   ✅ pending-nudge (exit 0)
   ✅ heartbeat (exit 0)
+  ✅ apollo-sourcer (exit 0)
   ✅ morning-brief (exit 0)
   ✅ error-monitor (exit 0)
   ✅ rt-token-sync (exit 0)
@@ -22,8 +23,8 @@
   ✅ agent-toggle-daemon (exit 0)
   ✅ agent-status-updater (exit 0)
   ✅ morning-video-scripts (exit 0)
-  ✅ nightly-state (exit 0)
   ✅ whatsapp-capture (exit 0)
+  ✅ nightly-state (exit 0)
   ✅ weekly-memory (exit 0)
   ✅ research-digest (exit 0)
   ✅ claude-task-worker (exit 0)
@@ -39,18 +40,20 @@
   ✅ data-os-sync (exit 0)
   ✅ email-response-scheduler (exit 0)
   ✅ sophia-outbound (exit 0)
-  ✅ telegram-poller (exit 0)
+  ⚠️ telegram-poller (exit -9)
   ✅ claude-startup (exit 0)
   ✅ memory-writer (exit 0)
   ✅ discord-morning-nudge (exit 0)
   ✅ weekly-memory-digest (exit 0)
   ✅ retainer-tracker (exit 0)
+  ✅ video-poller (exit 0)
+  ✅ git-backup (exit 0)
   ✅ telegram-health-check (exit 0)
 
 ## Email Queue
   rejected: 21
-  sent: 19
-  skipped: 10
+  sent: 20
+  skipped: 9
 
 ## Pending Approvals / Auto-Sends
   None
@@ -68,11 +71,11 @@
   favorite-flow: clean
 
 ## Recent Activity
-  2026-02-28 00:35 — dirty: workspace, mission-control-hub
-  2026-02-28 00:40 — dirty: workspace, mission-control-hub
-  2026-02-28 00:45 — dirty: workspace, mission-control-hub
-  2026-02-28 00:50 — dirty: workspace, mission-control-hub
-  2026-02-28 00:56 — dirty: workspace, mission-control-hub
+  2026-02-28 18:48 — dirty: workspace, mission-control-hub
+  2026-02-28 18:53 — dirty: workspace, mission-control-hub
+  2026-02-28 18:58 — dirty: workspace, mission-control-hub
+  2026-02-28 19:03 — dirty: workspace, mission-control-hub
+  2026-02-28 19:09 — dirty: workspace, mission-control-hub
 
 ## Scope Creep Alerts
   (none)

@@ -21,6 +21,7 @@ import urllib.parse
 import re
 import sys
 import signal
+import aiohttp
 from datetime import datetime, timezone
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -270,6 +271,25 @@ async def on_message(message: discord.Message):
     await message.reply(response, mention_author=False)
     print(f"[reply] Responded to @{username} in #{channel.name}")
 
+# ── Network readiness ─────────────────────────────────────────────────────────
+
+async def wait_for_network(host: str = "discord.com", port: int = 443):
+    """Block until DNS resolves successfully — handles startup before network is ready."""
+    import socket
+    loop = asyncio.get_running_loop()
+    attempt = 0
+    while True:
+        try:
+            await loop.run_in_executor(None, socket.getaddrinfo, host, port)
+            if attempt > 0:
+                print(f"[network] Network ready after {attempt} attempt(s)")
+            return
+        except OSError as e:
+            attempt += 1
+            wait = min(10 * attempt, 120)
+            print(f"[network] DNS not ready (attempt {attempt}): {e}. Waiting {wait}s...", file=sys.stderr)
+            await asyncio.sleep(wait)
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if not TOKEN:
@@ -288,6 +308,10 @@ async def main():
     # when create_task() is called on a loop that isn't between iterations.
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, handle_shutdown)
+
+    # Wait for network before starting — prevents DNS errors when the LaunchAgent
+    # launches at boot before the network stack is ready.
+    await wait_for_network()
 
     async with client:
         await client.start(TOKEN)

@@ -40,7 +40,7 @@ JOSH_CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
 export SUPABASE_URL SUPABASE_KEY BOT_TOKEN CHAT_ID ACCOUNT WS JOSH_CHAT_ID
 
 python3 - <<'PY'
-import os, sys, json, re, subprocess, datetime, urllib.request, urllib.error, threading
+import os, sys, json, re, subprocess, datetime, urllib.request, urllib.error, threading, time
 from concurrent.futures import ThreadPoolExecutor
 
 SUPABASE_URL = os.environ['SUPABASE_URL']
@@ -51,13 +51,21 @@ ACCOUNT      = os.environ['ACCOUNT']
 WS           = os.environ['WS']
 JOSH_CHAT_ID = os.environ.get('JOSH_CHAT_ID', '1140320036')
 
-def supa_get(path):
-    req = urllib.request.Request(
-        f"{SUPABASE_URL}/rest/v1/{path}",
-        headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"},
-    )
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.loads(r.read())
+def supa_get(path, retries=3, delay=5):
+    last_err = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/{path}",
+                headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"},
+            )
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.loads(r.read())
+        except (urllib.error.URLError, OSError) as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(delay * (attempt + 1))
+    raise last_err
 
 def supa_patch(path, body):
     data = json.dumps(body).encode()
@@ -237,12 +245,16 @@ def write_jsonl(filepath, record):
 
 # ── Fetch contacted leads (not yet marked replied) ─────────────────────────────
 
-leads = supa_get(
-    "leads?status=in.(contacted,sequence_complete)"
-    "&reply_received_at=is.null"
-    "&select=id,first_name,last_name,email,company,status"
-    "&limit=500"
-)
+try:
+    leads = supa_get(
+        "leads?status=in.(contacted,sequence_complete)"
+        "&reply_received_at=is.null"
+        "&select=id,first_name,last_name,email,company,status"
+        "&limit=500"
+    )
+except Exception as e:
+    print(f"ERROR: Could not reach Supabase after retries — {e}", file=sys.stderr)
+    sys.exit(0)
 
 if not leads:
     print("No contacted leads to check.")

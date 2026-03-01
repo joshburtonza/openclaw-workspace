@@ -54,8 +54,8 @@ def supa_patch(rid, body):
             },
             json=body, timeout=10
         )
-    except requests.exceptions.ConnectionError as e:
-        print(f'[reminder-poller] WARN: patch network error for {rid}: {e}', file=sys.stderr)
+    except requests.exceptions.ConnectionError:
+        print(f'[reminder-poller] WARN: patch network error for {rid} (DNS/connection)', file=sys.stdout)
         return False
     if r.status_code not in (200, 204):
         print(f'[reminder-poller] WARN: patch failed for {rid}: HTTP {r.status_code} {r.text[:100]}', file=sys.stderr)
@@ -71,8 +71,8 @@ try:
         headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}'},
         timeout=20
     )
-except requests.exceptions.ConnectionError as e:
-    print(f"[reminder-poller] Network unavailable, skipping: {e}", file=sys.stderr)
+except requests.exceptions.ConnectionError:
+    print("[reminder-poller] Network unavailable (DNS/connection), skipping", file=sys.stdout)
     raise SystemExit(0)
 if resp.status_code != 200:
     print(f"[reminder-poller] Supabase error {resp.status_code}: {resp.text[:200]}", file=sys.stderr)
