@@ -29,7 +29,8 @@ log "=== Weekly memory digest ==="
 export KEY SUPABASE_URL BOT_TOKEN CHAT_ID WS GPT_MODEL
 
 python3 - <<'PY'
-import os, json, datetime, urllib.request, subprocess, tempfile, sys
+import os, json, datetime, urllib.request, subprocess, tempfile, sys, html, re
+from html.parser import HTMLParser
 
 KEY          = os.environ['KEY']
 SUPABASE_URL = os.environ['SUPABASE_URL']
@@ -94,6 +95,54 @@ def supa_get(path):
         print(f"  [warn] supa_get {path}: {e}", file=sys.stderr)
         return []
 
+class _TgSanitizer(HTMLParser):
+    """Strip HTML tags not supported by Telegram; escape text nodes properly."""
+    ALLOWED = {'b', 'strong', 'i', 'em', 'u', 'ins', 's', 'strike', 'del',
+               'code', 'pre', 'a', 'tg-spoiler'}
+    LINK_TAGS = {'a'}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self._out = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.ALLOWED:
+            if tag in self.LINK_TAGS:
+                href = next((v for k, v in attrs if k == 'href'), None)
+                if href:
+                    self._out.append(f'<{tag} href="{html.escape(href)}">')
+                else:
+                    self._out.append(f'<{tag}>')
+            else:
+                self._out.append(f'<{tag}>')
+
+    def handle_endtag(self, tag):
+        if tag in self.ALLOWED:
+            self._out.append(f'</{tag}>')
+
+    def handle_data(self, data):
+        self._out.append(html.escape(data, quote=False))
+
+    def handle_entityref(self, name):
+        self._out.append(f'&{name};')
+
+    def handle_charref(self, name):
+        self._out.append(f'&#{name};')
+
+    def result(self):
+        return ''.join(self._out)
+
+
+def sanitize_tg_html(text):
+    """Return text safe for Telegram HTML parse_mode."""
+    try:
+        s = _TgSanitizer()
+        s.feed(text)
+        return s.result()
+    except Exception:
+        return html.escape(re.sub(r'<[^>]+>', '', text), quote=False)
+
+
 def tg(text):
     if not BOT_TOKEN:
         return
@@ -111,7 +160,8 @@ def tg(text):
         chunks.append(current.strip())
     for chunk in chunks:
         try:
-            data = json.dumps({'chat_id': CHAT_ID, 'text': chunk, 'parse_mode': 'HTML'}).encode()
+            safe_chunk = sanitize_tg_html(chunk)
+            data = json.dumps({'chat_id': CHAT_ID, 'text': safe_chunk, 'parse_mode': 'HTML'}).encode()
             req = urllib.request.Request(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                 data=data, headers={'Content-Type': 'application/json'}, method='POST',

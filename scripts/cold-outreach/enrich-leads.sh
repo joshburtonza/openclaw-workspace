@@ -55,6 +55,14 @@ WS           = os.environ['WS']
 ARG1         = os.environ.get('ARG1', '')
 ARG2         = os.environ.get('ARG2', '')
 
+# Apollo requires browser User-Agent — Python urllib default is blocked by Cloudflare (error 1010)
+APOLLO_HEADERS = {
+    'X-Api-Key':    APOLLO_KEY,
+    'Content-Type': 'application/json',
+    'Accept':       'application/json, text/plain, */*',
+    'User-Agent':   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+}
+
 def log(msg):
     ts = datetime.datetime.now().strftime('%H:%M:%S')
     line = f'[{ts}] {msg}'
@@ -115,7 +123,7 @@ def apollo_org_enrich(domain):
     req = urllib.request.Request(
         'https://api.apollo.io/v1/organizations/enrich',
         data=body,
-        headers={'X-Api-Key': APOLLO_KEY, 'Content-Type': 'application/json'}
+        headers=APOLLO_HEADERS,
     )
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
@@ -167,7 +175,7 @@ def apollo_find_email(first_name, last_name, domain, company=''):
     req = urllib.request.Request(
         'https://api.apollo.io/v1/people/match',
         data=body,
-        headers={'X-Api-Key': APOLLO_KEY, 'Content-Type': 'application/json'}
+        headers=APOLLO_HEADERS,
     )
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
@@ -176,13 +184,26 @@ def apollo_find_email(first_name, last_name, domain, company=''):
         email = p.get('email')
         linkedin = p.get('linkedin_url')
         title = p.get('title', '')
+        # Pull employment history — store most recent previous company
+        eh = p.get('employment_history') or []
+        prev_companies = [
+            h.get('organization_name') for h in eh
+            if h.get('organization_name') and h.get('current') is False
+        ][:3]
+
         enrichment = {
-            'linkedin':    linkedin,
-            'title':       title,
-            'apollo_id':   p.get('id'),
-            'photo':       p.get('photo_url'),
-            'seniority':   p.get('seniority') or None,
-            'departments': p.get('departments') or None,
+            'linkedin':          linkedin,
+            'title':             title,
+            'apollo_id':         p.get('id'),
+            'photo':             p.get('photo_url'),
+            'seniority':         p.get('seniority') or None,
+            'departments':       p.get('departments') or None,
+            'headline':          p.get('headline') or None,
+            'person_twitter':    p.get('twitter_url') or None,
+            'phone_numbers':     [ph.get('sanitized_number') for ph in (p.get('phone_numbers') or []) if ph.get('sanitized_number')] or None,
+            'show_intent':       p.get('show_intent') or None,
+            'intent_strength':   p.get('intent_strength') or None,
+            'prev_companies':    prev_companies or None,
         }
         if email:
             log(f'  Apollo found email: {email}')
@@ -447,6 +468,8 @@ def enrich_lead(lead):
         update['seniority'] = enrichment_data['seniority']
     if enrichment_data.get('departments') and not lead.get('departments'):
         update['departments'] = enrichment_data['departments']
+    if enrichment_data.get('headline') and not lead.get('headline'):
+        update['headline'] = enrichment_data['headline']
 
     # Org enrichment fields (always write if we got data and field is empty)
     if org_data.get('company_description') and not lead.get('company_description'):
@@ -474,6 +497,87 @@ def enrich_lead(lead):
     log(f'  → {email_status} | email: {found_email} | source: {source or "none"}')
     return email_status in ('valid', 'catch_all')
 
+# ── Backfill: Apollo person + org enrichment on already-verified leads ─────────
+def backfill_lead(lead):
+    """Run Apollo people/match + org enrichment on a lead that already has email.
+    Skips the Hunter email waterfall entirely — just populates the proper columns."""
+    lead_id = lead['id']
+    first   = (lead.get('first_name') or '').strip()
+    last    = (lead.get('last_name') or '').strip()
+    email   = (lead.get('email') or '').strip()
+    company = (lead.get('company') or '').strip()
+    website = (lead.get('website') or '').strip()
+
+    log(f'Backfilling: {first} {last} @ {company}')
+
+    domain = extract_domain(website, email)
+    if not domain:
+        log(f'  No domain — skipping')
+        return
+
+    update = {'enriched_at': datetime.datetime.now(datetime.timezone.utc).isoformat()}
+
+    # Apollo org enrichment
+    org_data = apollo_org_enrich(domain)
+    if org_data.get('company_description') and not lead.get('company_description'):
+        update['company_description'] = org_data['company_description']
+    if org_data.get('tech_stack'):
+        update['tech_stack'] = org_data['tech_stack']
+    if org_data.get('company_keywords'):
+        update['company_keywords'] = org_data['company_keywords']
+    if org_data.get('twitter_url') and not lead.get('twitter_url'):
+        update['twitter_url'] = org_data['twitter_url']
+    if org_data.get('company_linkedin_url') and not lead.get('company_linkedin_url'):
+        update['company_linkedin_url'] = org_data['company_linkedin_url']
+    if org_data.get('annual_revenue') and not lead.get('annual_revenue'):
+        update['annual_revenue'] = org_data['annual_revenue']
+    if org_data.get('founded_year') and not lead.get('founded_year'):
+        update['founded_year'] = org_data['founded_year']
+    if org_data.get('employee_count_org') and not lead.get('employee_count'):
+        update['employee_count'] = org_data['employee_count_org']
+    if org_data.get('industry_org') and not lead.get('industry'):
+        update['industry'] = org_data['industry_org']
+
+    # Apollo person match — get profile without revealing email (no credits)
+    if first and APOLLO_KEY:
+        payload = {'first_name': first, 'last_name': last, 'domain': domain}
+        if company: payload['organization_name'] = company
+        body = json.dumps(payload).encode()
+        req = urllib.request.Request(
+            'https://api.apollo.io/v1/people/match',
+            data=body,
+            headers=APOLLO_HEADERS,
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                d = json.loads(r.read())
+            p = d.get('person') or {}
+            if p:
+                eh = p.get('employment_history') or []
+                if not lead.get('linkedin_url') and p.get('linkedin_url'):
+                    update['linkedin_url'] = p['linkedin_url']
+                if not lead.get('title') and p.get('title'):
+                    update['title'] = p['title']
+                if not lead.get('apollo_id') and p.get('id'):
+                    update['apollo_id'] = p['id']
+                if not lead.get('seniority') and p.get('seniority'):
+                    update['seniority'] = p['seniority']
+                if not lead.get('departments') and p.get('departments'):
+                    update['departments'] = p['departments']
+                if not lead.get('headline') and p.get('headline'):
+                    update['headline'] = p['headline']
+                if p.get('twitter_url') and 'twitter_url' not in update:
+                    update['twitter_url'] = p['twitter_url']
+                log(f'  Apollo person: linkedin={bool(p.get("linkedin_url"))}, seniority={p.get("seniority")}, headline={bool(p.get("headline"))}')
+        except Exception as e:
+            log(f'  Apollo person error: {e}')
+
+    if len(update) > 1:  # more than just enriched_at
+        supa_patch(f'leads?id=eq.{lead_id}', update)
+        log(f'  → updated {len(update)-1} fields')
+    else:
+        log(f'  → nothing new to write')
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if ARG1 == '--lead' and ARG2:
     leads = supa_get(f'leads?id=eq.{ARG2}&select=*')
@@ -486,6 +590,28 @@ if ARG1 == '--lead' and ARG2:
 if ARG1 == '--email' and ARG2:
     vstatus, vscore = hunter_verify(ARG2)
     log(f'Verification result: {vstatus} (score={vscore})')
+    sys.exit(0)
+
+if ARG1 == '--backfill':
+    # Re-enrich all leads that already have emails but are missing company_description
+    # Runs Apollo person/match + org enrichment only — skips Hunter waterfall
+    limit = int(ARG2) if ARG2 and ARG2.isdigit() else 50
+    leads = supa_get(
+        f'leads?company_description=is.null'
+        f'&email_status=in.(valid,catch_all,unverified)'
+        f'&order=created_at.asc&limit={limit}&select=*'
+    )
+    if not leads:
+        log('All leads already have company data — nothing to backfill')
+        sys.exit(0)
+    log(f'Backfilling {len(leads)} lead(s) with Apollo person + org data...')
+    for lead in leads:
+        try:
+            backfill_lead(lead)
+            time.sleep(1.2)  # Apollo rate limit courtesy
+        except Exception as e:
+            log(f'Error backfilling {lead.get("id")}: {e}')
+    log(f'Backfill complete.')
     sys.exit(0)
 
 # Default: process up to 20 leads needing enrichment

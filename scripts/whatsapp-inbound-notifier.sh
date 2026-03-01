@@ -21,7 +21,7 @@ CONTACTS_FILE="$ROOT/data/contacts.json"
 export SUPABASE_URL SERVICE_KEY BOT_TOKEN CHAT_ID CONTACTS_FILE
 
 python3 - <<'PY'
-import os, json, sys, datetime, urllib.request, urllib.parse
+import os, json, sys, datetime, urllib.request, urllib.parse, urllib.error
 
 SUPABASE_URL  = os.environ['SUPABASE_URL']
 SERVICE_KEY   = os.environ['SERVICE_KEY']
@@ -72,10 +72,15 @@ def supa_get(path, params=None):
         if e.code == 404:
             try:
                 body = json.loads(e.read())
-                if body.get('code') == 'PGRST205':
+                code = body.get('code', '')
+                msg  = body.get('message', '')
+                # PGRST205: ambiguous path; 42P01: undefined_table (PostgreSQL)
+                # Also catch plain "does not exist" messages
+                if code in ('PGRST205', '42P01') or 'does not exist' in msg:
                     raise TableNotFoundError(path)
             except (json.JSONDecodeError, AttributeError):
-                pass
+                # Non-JSON 404 body — treat as missing resource
+                raise TableNotFoundError(path)
         raise
 
 def supa_patch(path, params, body):
@@ -137,6 +142,9 @@ try:
     })
 except TableNotFoundError:
     # Table not yet created — WhatsApp setup incomplete, skip silently
+    sys.exit(0)
+except urllib.error.URLError as e:
+    # Network unavailable (DNS failure, connection refused, etc.) — transient, skip silently
     sys.exit(0)
 except Exception as e:
     print(f'[wa-notifier] Supabase fetch error: {e}', file=sys.stderr)
