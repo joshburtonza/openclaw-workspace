@@ -210,6 +210,14 @@ def analyse_lead(lead):
     source  = lead.get('source', '') or ''
     notes   = lead.get('notes', '') or ''
     q_score = lead.get('quality_score') or 0
+    company_desc  = lead.get('company_description', '') or ''
+    tech_stack    = lead.get('tech_stack') or []
+    company_kw    = lead.get('company_keywords') or []
+    twitter_url   = lead.get('twitter_url', '') or ''
+    annual_revenue = lead.get('annual_revenue', '') or ''
+    founded_year  = lead.get('founded_year') or ''
+    seniority     = lead.get('seniority', '') or ''
+    departments   = lead.get('departments') or []
 
     # Fill blanks from legacy notes blob
     nb = parse_notes_field(notes)
@@ -229,6 +237,9 @@ def analyse_lead(lead):
 
     location_str = ', '.join(filter(None, [loc_city, loc_country]))
     emp_str = f'{emp} employees' if emp else 'Unknown size'
+    tech_str = ', '.join(tech_stack[:15]) if tech_stack else 'Unknown'
+    kw_str   = ', '.join(company_kw[:10]) if company_kw else ''
+    dept_str = ', '.join(departments) if departments else ''
 
     log(f'  Fetching website: {website or "(none)"}')
     web_content = fetch_website(website) if website else ''
@@ -248,15 +259,28 @@ Analyse this CRM lead and score their fit as a potential Amalfi AI client.
 LEAD DETAILS:
 Name: {first} {last}
 Title: {title or 'Unknown'}
+Seniority: {seniority or 'Unknown'}
+Department: {dept_str or 'Unknown'}
 Company: {company or 'Unknown'}
 Industry: {industry or 'Unknown'}
 Size: {emp_str}
+Founded: {founded_year or 'Unknown'}
+Annual Revenue: {annual_revenue or 'Unknown'}
 Location: {location_str or 'Unknown'}
 Email: {email}
-LinkedIn: {linkedin or 'Not available'}
+LinkedIn (person): {linkedin or 'Not available'}
+Twitter: {twitter_url or 'Not available'}
 Website: {website or 'Not available'}
 Source: {source or 'Unknown'}
-Existing quality score: {q_score}/100
+
+COMPANY DESCRIPTION (from Apollo):
+{company_desc or 'Not available'}
+
+COMPANY KEYWORDS / SPECIALTIES:
+{kw_str or 'Not available'}
+
+TECH STACK (tools they use):
+{tech_str}
 
 WEBSITE CONTENT:
 {web_summary}

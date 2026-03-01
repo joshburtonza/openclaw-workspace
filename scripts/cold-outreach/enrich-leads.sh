@@ -106,6 +106,52 @@ def extract_domain(website, email=''):
             return d
     return None
 
+# ── Step 0: Apollo org enrichment ────────────────────────────────────────────
+def apollo_org_enrich(domain):
+    """Call Apollo /organizations/enrich — free, no credits. Returns dict of company intel."""
+    if not APOLLO_KEY or not domain:
+        return {}
+    body = json.dumps({'domain': domain}).encode()
+    req = urllib.request.Request(
+        'https://api.apollo.io/v1/organizations/enrich',
+        data=body,
+        headers={'X-Api-Key': APOLLO_KEY, 'Content-Type': 'application/json'}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            d = json.loads(r.read())
+        org = d.get('organization') or {}
+        if not org:
+            return {}
+
+        # Tech stack: list of tool names
+        techs = [t.get('name') for t in (org.get('technologies') or []) if t.get('name')]
+
+        # Keywords / specialties
+        keywords = org.get('keywords') or []
+
+        # Revenue: prefer printed label
+        revenue = org.get('organization_revenue_printed') or org.get('annual_revenue_printed')
+
+        result = {
+            'company_description':  (org.get('short_description') or '')[:500] or None,
+            'tech_stack':           techs if techs else None,
+            'company_keywords':     keywords[:20] if keywords else None,
+            'twitter_url':          org.get('twitter_url') or None,
+            'company_linkedin_url': org.get('linkedin_url') or None,
+            'annual_revenue':       revenue or None,
+            'founded_year':         org.get('founded_year') or None,
+            # Update employee count only if we have nothing yet
+            'employee_count_org':   org.get('estimated_num_employees') or None,
+            'industry_org':         org.get('industry') or None,
+        }
+        log(f'  Apollo org: description={bool(result["company_description"])}, '
+            f'techs={len(techs)}, revenue={revenue}, twitter={bool(result["twitter_url"])}')
+        return result
+    except Exception as e:
+        log(f'  Apollo org error: {e}')
+        return {}
+
 # ── Step 1: Apollo people/match ───────────────────────────────────────────────
 def apollo_find_email(first_name, last_name, domain, company=''):
     """Try Apollo people/match to find email for a person."""
@@ -131,10 +177,12 @@ def apollo_find_email(first_name, last_name, domain, company=''):
         linkedin = p.get('linkedin_url')
         title = p.get('title', '')
         enrichment = {
-            'linkedin': linkedin,
-            'title': title,
-            'apollo_id': p.get('id'),
-            'photo': p.get('photo_url'),
+            'linkedin':    linkedin,
+            'title':       title,
+            'apollo_id':   p.get('id'),
+            'photo':       p.get('photo_url'),
+            'seniority':   p.get('seniority') or None,
+            'departments': p.get('departments') or None,
         }
         if email:
             log(f'  Apollo found email: {email}')
@@ -306,7 +354,12 @@ def enrich_lead(lead):
 
     found_email = email if email else None
     enrichment_data = {}
+    org_data = {}
     source = None
+
+    # ── Pass 0: Apollo org enrichment (always, regardless of email status) ─
+    log(f'  [0/4] Apollo org: {domain}')
+    org_data = apollo_org_enrich(domain)
 
     # ── Pass 1: Apollo ─────────────────────────────────────────────────────
     if not found_email and first:
@@ -390,6 +443,33 @@ def enrich_lead(lead):
         update['title'] = enrichment_data['title']
     if enrichment_data.get('apollo_id') and not lead.get('apollo_id'):
         update['apollo_id'] = enrichment_data['apollo_id']
+    if enrichment_data.get('seniority') and not lead.get('seniority'):
+        update['seniority'] = enrichment_data['seniority']
+    if enrichment_data.get('departments') and not lead.get('departments'):
+        update['departments'] = enrichment_data['departments']
+
+    # Org enrichment fields (always write if we got data and field is empty)
+    if org_data.get('company_description') and not lead.get('company_description'):
+        update['company_description'] = org_data['company_description']
+    if org_data.get('tech_stack'):
+        update['tech_stack'] = org_data['tech_stack']
+    if org_data.get('company_keywords'):
+        update['company_keywords'] = org_data['company_keywords']
+    if org_data.get('twitter_url') and not lead.get('twitter_url'):
+        update['twitter_url'] = org_data['twitter_url']
+    if org_data.get('company_linkedin_url') and not lead.get('company_linkedin_url'):
+        update['company_linkedin_url'] = org_data['company_linkedin_url']
+    if org_data.get('annual_revenue') and not lead.get('annual_revenue'):
+        update['annual_revenue'] = org_data['annual_revenue']
+    if org_data.get('founded_year') and not lead.get('founded_year'):
+        update['founded_year'] = org_data['founded_year']
+    # Update employee_count from org if not set
+    if org_data.get('employee_count_org') and not lead.get('employee_count'):
+        update['employee_count'] = org_data['employee_count_org']
+    # Update industry from org if not set
+    if org_data.get('industry_org') and not lead.get('industry'):
+        update['industry'] = org_data['industry_org']
+
     supa_patch(f'leads?id=eq.{lead_id}', update)
     log(f'  → {email_status} | email: {found_email} | source: {source or "none"}')
     return email_status in ('valid', 'catch_all')
