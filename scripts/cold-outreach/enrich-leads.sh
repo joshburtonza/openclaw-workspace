@@ -377,35 +377,20 @@ def enrich_lead(lead):
         email_status = 'not_found'
         found_email = email  # keep original if any
 
-    # ── Build notes enrichment snippet ────────────────────────────────────
-    enrich_note = ''
-    if enrichment_data.get('linkedin'):
-        enrich_note += f'\nLinkedIn: {enrichment_data["linkedin"]}'
-    if enrichment_data.get('title'):
-        enrich_note += f'\nTitle (Apollo): {enrichment_data["title"]}'
-    if source:
-        enrich_note += f'\nEmail source: {source}'
-
     # ── Update Supabase ────────────────────────────────────────────────────
     update = {
         'email_status': email_status,
-        'enriched_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'enriched_at':  datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
     if found_email and found_email != email:
         update['email'] = found_email
-    if enrich_note and enrich_note not in (notes or ''):
-        update['notes'] = (notes.rstrip() + enrich_note) if notes else enrich_note.strip()
     if enrichment_data.get('linkedin'):
         update['linkedin_url'] = enrichment_data['linkedin']
-
-    # Only update fields that exist in the leads schema
-    safe_update = {k: v for k, v in update.items()
-                   if k in ('email', 'email_status', 'notes')}
-    # Append LinkedIn to notes if we got it and it's not already there
-    if enrichment_data.get('linkedin') and enrichment_data['linkedin'] not in safe_update.get('notes', notes or ''):
-        base_notes = safe_update.get('notes', notes or '')
-        safe_update['notes'] = (base_notes.rstrip() + f'\nLinkedIn: {enrichment_data["linkedin"]}').strip()
-    supa_patch(f'leads?id=eq.{lead_id}', safe_update)
+    if enrichment_data.get('title') and not lead.get('title'):
+        update['title'] = enrichment_data['title']
+    if enrichment_data.get('apollo_id') and not lead.get('apollo_id'):
+        update['apollo_id'] = enrichment_data['apollo_id']
+    supa_patch(f'leads?id=eq.{lead_id}', update)
     log(f'  → {email_status} | email: {found_email} | source: {source or "none"}')
     return email_status in ('valid', 'catch_all')
 

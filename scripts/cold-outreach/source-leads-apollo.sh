@@ -36,17 +36,18 @@ CHAT_ID="${AOS_TELEGRAM_OWNER_CHAT_ID:-1140320036}"
 LOG="$WS/out/source-leads-apollo.log"
 mkdir -p "$WS/out"
 
-ARG_SEGMENT="all"; ARG_REVEAL="false"; ARG_LIMIT=25
+ARG_SEGMENT="all"; ARG_REVEAL="false"; ARG_LIMIT=25; ARG_CLIENT="aos"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --segment) ARG_SEGMENT="$2"; shift 2 ;;
         --reveal)  ARG_REVEAL="true"; shift ;;
         --limit)   ARG_LIMIT="$2";   shift 2 ;;
+        --client)  ARG_CLIENT="$2";  shift 2 ;;
         *) shift ;;
     esac
 done
 
-export SUPABASE_URL KEY APOLLO_KEY BOT_TOKEN CHAT_ID LOG ARG_SEGMENT ARG_REVEAL ARG_LIMIT
+export SUPABASE_URL KEY APOLLO_KEY BOT_TOKEN CHAT_ID LOG ARG_SEGMENT ARG_REVEAL ARG_LIMIT ARG_CLIENT
 
 python3 << 'PY'
 import json, os, sys, re, urllib.request, urllib.parse, datetime, time, random
@@ -60,6 +61,7 @@ LOG_PATH     = os.environ['LOG']
 ARG_SEGMENT  = os.environ['ARG_SEGMENT']
 ARG_REVEAL   = os.environ['ARG_REVEAL'] == 'true'
 ARG_LIMIT    = int(os.environ['ARG_LIMIT'])
+ARG_CLIENT   = os.environ.get('ARG_CLIENT', 'aos')
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ICP Segments
@@ -331,27 +333,32 @@ def apollo_post(endpoint, payload, retries=2):
 def load_existing_ids():
     """Fetch all apollo_ids and emails already in Supabase leads."""
     log('Loading existing lead IDs for dedup...')
-    # Load in pages to get all leads
     apollo_ids = set()
     emails = set()
     page_size = 1000
     offset = 0
     while True:
-        batch = supa_get(f'leads?select=email,notes&limit={page_size}&offset={offset}')
+        batch = supa_get(f'leads?select=email,apollo_id&limit={page_size}&offset={offset}')
         if not batch:
             break
         for l in batch:
             if l.get('email'):
                 emails.add(l['email'].lower().strip())
-            notes = l.get('notes') or ''
-            m = re.search(r'Apollo ID: ([a-f0-9]+)', notes)
-            if m:
-                apollo_ids.add(m.group(1))
+            if l.get('apollo_id'):
+                apollo_ids.add(l['apollo_id'])
         if len(batch) < page_size:
             break
         offset += page_size
     log(f'  Existing: {len(emails)} emails, {len(apollo_ids)} Apollo IDs')
     return apollo_ids, emails
+
+def load_client_id(slug):
+    """Fetch UUID for a client slug from the clients table."""
+    rows = supa_get(f'clients?slug=eq.{urllib.parse.quote(slug)}&select=id&limit=1')
+    if rows and rows[0].get('id'):
+        return rows[0]['id']
+    log(f'  Warning: client slug "{slug}" not found in clients table — proceeding without client_id')
+    return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Apollo search + profile reveal
@@ -448,33 +455,34 @@ def search_segment(seg_key, seg, limit, existing_apollo_ids, existing_emails):
         if ARG_REVEAL and has_email:
             credits_used += 1
 
-        # Build notes block
+        # Build lead with proper columns (no notes blob for enrichment data)
         notes_parts = []
-        if city or country:
-            notes_parts.append(f'Location: {", ".join(filter(None, [city, country]))}')
-        if industry:
-            notes_parts.append(f'Industry: {industry}')
-        if emp_count:
-            notes_parts.append(f'Employees: {emp_count}')
         if headline:
             notes_parts.append(f'Headline: {headline[:200]}')
-        if linkedin:
-            notes_parts.append(f'LinkedIn: {linkedin}')
-        notes_parts.append(f'Apollo ID: {apollo_id}')
-        notes_parts.append(f'Segment: {seg_key}')
+        if seg_key:
+            notes_parts.append(f'Segment: {seg_key}')
 
         lead = {
-            'first_name':   first_name,
-            'last_name':    last_name,
-            'email':        email_val if email_val else None,
-            'company':      org_name,
-            'website':      website if website else None,
-            'source':       'apollo',
-            'status':       'new',
-            'assigned_to':  assigned,
-            'tags':         tags + ([industry] if industry and industry not in tags else []),
-            'notes':        '\n'.join(notes_parts),
-            'email_status': 'valid' if email_status == 'verified' else (None if not email_val else 'unverified'),
+            'first_name':      first_name,
+            'last_name':       last_name,
+            'email':           email_val if email_val else None,
+            'company':         org_name,
+            'website':         website if website else None,
+            'source':          'apollo',
+            'status':          'new',
+            'assigned_to':     assigned,
+            'tags':            tags,
+            'notes':           '\n'.join(notes_parts) if notes_parts else None,
+            'email_status':    'valid' if email_status == 'verified' else (None if not email_val else 'unverified'),
+            # Enrichment columns
+            'apollo_id':       apollo_id if apollo_id else None,
+            'title':           title if title else None,
+            'linkedin_url':    linkedin if linkedin else None,
+            'industry':        industry if industry else None,
+            'employee_count':  int(emp_count) if emp_count and str(emp_count).isdigit() else None,
+            'location_city':   city if city else None,
+            'location_country': country if country else None,
+            'client_id':       CLIENT_ID,
         }
 
         # Remove None values to avoid Supabase type errors
@@ -530,7 +538,10 @@ def insert_leads(leads):
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
-log(f'=== Apollo Lead Sourcer ===  segment={ARG_SEGMENT}  reveal={ARG_REVEAL}  limit={ARG_LIMIT}')
+log(f'=== Apollo Lead Sourcer ===  segment={ARG_SEGMENT}  reveal={ARG_REVEAL}  limit={ARG_LIMIT}  client={ARG_CLIENT}')
+
+CLIENT_ID = load_client_id(ARG_CLIENT)
+log(f'  Client ID: {CLIENT_ID or "none (orphan leads)"}')
 
 if ARG_SEGMENT == 'all':
     segments_to_run = list(ICP_SEGMENTS.keys())
