@@ -54,11 +54,11 @@ def supa_patch(rid, body):
             },
             json=body, timeout=10
         )
-    except requests.exceptions.ConnectionError:
-        print(f'[reminder-poller] WARN: patch network error for {rid} (DNS/connection)', file=sys.stdout)
+    except requests.exceptions.RequestException as e:
+        print(f'[reminder-poller] WARN: patch network error for {rid}: {type(e).__name__}', file=sys.stdout)
         return False
     if r.status_code not in (200, 204):
-        print(f'[reminder-poller] WARN: patch failed for {rid}: HTTP {r.status_code} {r.text[:100]}', file=sys.stderr)
+        print(f'[reminder-poller] WARN: patch failed for {rid}: HTTP {r.status_code} {r.text[:500]}', file=sys.stderr)
         return False
     return True
 
@@ -71,8 +71,8 @@ try:
         headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}'},
         timeout=20
     )
-except requests.exceptions.ConnectionError:
-    print("[reminder-poller] Network unavailable (DNS/connection), skipping", file=sys.stdout)
+except requests.exceptions.RequestException as e:
+    print(f"[reminder-poller] Network error, skipping: {type(e).__name__}", file=sys.stdout)
     raise SystemExit(0)
 if resp.status_code != 200:
     print(f"[reminder-poller] Supabase error {resp.status_code}: {resp.text[:200]}", file=sys.stderr)
@@ -108,7 +108,7 @@ for rem in reminders:
 
     # Auto-dismiss reminders that are very overdue — they were clearly missed
     if overdue > auto_dismiss_h:
-        supa_patch(rid, {'status': 'dismissed'})
+        supa_patch(rid, {'status': 'read'})
         print(f'Auto-dismissed stale reminder: {title} ({int(overdue.total_seconds()//3600)}h overdue)')
         continue
 
@@ -135,9 +135,12 @@ for rem in reminders:
     }
     tg_send(msg, markup)
 
-    # Mark as 'sent' so this reminder is never fired again.
-    # remind_done → 'dismissed', remind_snooze → resets to 'unread' with new due time.
-    supa_patch(rid, {'status': 'sent'})
+    # Mark as 'read' so this reminder is never fired again.
+    # The DB constraint (notifications_status_check) only allows unread→read directly;
+    # dismissed/sent require intermediate state so 'read' is the safe post-fire status.
+    ok = supa_patch(rid, {'status': 'read'})
+    if not ok:
+        print(f'[reminder-poller] ERROR: failed to mark {rid} read — will re-fire next run', file=sys.stderr)
 
     fired += 1
     print(f'Fired: {title} (due {due_display})')

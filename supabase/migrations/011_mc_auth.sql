@@ -31,10 +31,11 @@ CREATE POLICY "users_read_own_mc_users"
 -- Josh: owner, sees everything
 INSERT INTO mc_users (email, role, display_name, allowed_pages) VALUES
   ('josh@amalfiai.com', 'owner', 'Josh', ARRAY['*']::TEXT[])
-ON CONFLICT (email) DO NOTHING;
+ON CONFLICT (email) DO UPDATE SET
+  role = EXCLUDED.role, display_name = EXCLUDED.display_name, allowed_pages = EXCLUDED.allowed_pages;
 
--- Salah: staff, sees business finances only
--- UPDATE THE EMAIL BELOW to Salah's real email, then run:
--- INSERT INTO mc_users (email, role, display_name, allowed_pages) VALUES
---   ('salah@example.com', 'staff', 'Salah', ARRAY['/finances']::TEXT[])
--- ON CONFLICT (email) DO NOTHING;
+-- Salah: staff, sees Finances only (business view, no debt/personal subs)
+INSERT INTO mc_users (email, role, display_name, allowed_pages) VALUES
+  ('salah@amalfiai.com', 'staff', 'Salah', ARRAY['/', '/crm', '/csm', '/finances', '/tasks', '/clients', '/docs', '/contracts']::TEXT[])
+ON CONFLICT (email) DO UPDATE SET
+  role = EXCLUDED.role, display_name = EXCLUDED.display_name, allowed_pages = EXCLUDED.allowed_pages;
