@@ -597,7 +597,7 @@ Rules:
         tg_send(chat_id, f"Error sending confirmation: {ex}")
 
 # ── Handle /remind command ────────────────────────────────────────────────────
-def handle_remind(chat_id, text):
+def handle_remind(chat_id, text, user_profile='josh'):
     """
     Formats:
       /remind 30min Call Riaan
@@ -705,14 +705,15 @@ def handle_remind(chat_id, text):
         )
         return
 
-    # Insert into Supabase notifications
+    # Insert into Supabase notifications — scoped to the requesting user
+    owner = 'Salah' if user_profile == 'salah' else 'Josh'
     payload = {
         'type':     'reminder',
         'title':    desc,
         'status':   'unread',
         'priority': 'normal',
-        'agent':    'Josh',
-        'metadata': {'due': due.isoformat()},
+        'agent':    owner,
+        'metadata': {'due': due.isoformat(), 'user': user_profile},
     }
     try:
         r = requests.post(
@@ -1829,10 +1830,10 @@ for u in updates:
     text_lower = text.lower()
     actor_id = 'salah' if user_profile == 'salah' else 'josh'
 
-    # Josh-only commands — block for Salah
-    JOSH_ONLY_CMDS = ('/remind', '/ooo', '/available', '/newlead', '/meet', '/calibrate', '/agents', '/enrich')
+    # Josh-only commands — block for Salah (remind + meet are allowed for Salah with user isolation)
+    JOSH_ONLY_CMDS = ('/ooo', '/available', '/newlead', '/calibrate', '/agents', '/enrich')
     if user_profile == 'salah' and any(text_lower.startswith(c) for c in JOSH_ONLY_CMDS):
-        tg_send(chat_id, f"⛔ That command is Josh-only on this system.")
+        tg_send(chat_id, "⛔ That command is Josh-only on this system.")
         continue
 
     # ── Calibration wizard state machine ──────────────────────────────────────
@@ -1903,8 +1904,8 @@ for u in updates:
         continue
 
     if text_lower.startswith('/remind'):
-        handle_remind(chat_id, text)
-        log_signal('josh', 'josh', 'command_used', {'command': 'remind', 'text': text[:120]})
+        handle_remind(chat_id, text, user_profile)
+        log_signal(actor_id, actor_id, 'command_used', {'command': 'remind', 'text': text[:120]})
 
     elif text_lower.startswith('/newlead'):
         handle_newlead(chat_id, text)

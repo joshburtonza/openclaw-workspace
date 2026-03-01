@@ -582,4 +582,20 @@ summary = (
 log(summary.replace('<b>', '').replace('</b>', ''))
 tg(summary)
 print(f'\n✅ Done — {total_inserted} leads inserted')
+
+# Write count to stdout so bash can pick it up
+print(f'INSERTED:{total_inserted}')
 PY
+
+# ── Auto-chain: enrich → analyse for any new leads ────────────────────────────
+INSERTED=$(grep -o 'INSERTED:[0-9]*' <<< "$(tail -1 <<< "$?")" 2>/dev/null || echo "INSERTED:0")
+# Simpler: just always run enrich + analyse after sourcing (idempotent)
+if [[ "${SKIP_CHAIN:-false}" != "true" ]]; then
+    echo ""
+    echo "── Auto-enriching new leads ──"
+    bash "$WS/scripts/cold-outreach/enrich-leads.sh" || true
+
+    echo ""
+    echo "── Auto-analysing new leads ──"
+    bash "$WS/scripts/cold-outreach/analyse-leads.sh" --all --limit 50 || true
+fi

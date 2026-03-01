@@ -25,6 +25,7 @@ TASK_ID=$(task_create "Meet Notes Poller" "Scanning for new meeting notes" "meet
 KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
+SALAH_CHAT_ID="${TELEGRAM_SALAH_CHAT_ID:-}"
 SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 ACCOUNT="josh@amalfiai.com"
 
@@ -48,7 +49,7 @@ fi
 
 log "Found $COUNT meeting note email(s). Processing..."
 
-export EMAILS_JSON KEY SUPABASE_URL BOT_TOKEN CHAT_ID SEEN_FILE ACCOUNT WS
+export EMAILS_JSON KEY SUPABASE_URL BOT_TOKEN CHAT_ID SALAH_CHAT_ID SEEN_FILE ACCOUNT WS
 
 python3 - <<'PY'
 import os, json, subprocess, urllib.request, urllib.error, datetime, re, tempfile
@@ -57,10 +58,11 @@ EMAILS_JSON  = os.environ['EMAILS_JSON']
 KEY          = os.environ['KEY']
 SUPABASE_URL = os.environ['SUPABASE_URL']
 BOT_TOKEN    = os.environ['BOT_TOKEN']
-CHAT_ID      = os.environ['CHAT_ID']
-SEEN_FILE    = os.environ['SEEN_FILE']
-ACCOUNT      = os.environ['ACCOUNT']
-WS           = os.environ['WS']
+CHAT_ID       = os.environ['CHAT_ID']
+SALAH_CHAT_ID = os.environ.get('SALAH_CHAT_ID', '')
+SEEN_FILE     = os.environ['SEEN_FILE']
+ACCOUNT       = os.environ['ACCOUNT']
+WS            = os.environ['WS']
 
 emails = json.loads(EMAILS_JSON) if EMAILS_JSON.strip().startswith('[') else []
 
@@ -69,10 +71,8 @@ with open(SEEN_FILE) as f:
 
 processed = 0
 
-def tg_send(text):
-    if not BOT_TOKEN or not CHAT_ID:
-        return
-    data = json.dumps({'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'Markdown'}).encode()
+def _tg_send_one(chat_id, text):
+    data = json.dumps({'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'}).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
         data=data, headers={'Content-Type': 'application/json'}, method='POST'
@@ -81,6 +81,14 @@ def tg_send(text):
         urllib.request.urlopen(req, timeout=10)
     except Exception:
         pass
+
+def tg_send(text):
+    """Send to Josh and CC Salah on all meeting debriefs."""
+    if not BOT_TOKEN or not CHAT_ID:
+        return
+    _tg_send_one(CHAT_ID, text)
+    if SALAH_CHAT_ID:
+        _tg_send_one(SALAH_CHAT_ID, text)
 
 def call_claude(prompt, model):
     tmp = tempfile.NamedTemporaryFile(suffix='.txt', delete=False, mode='w')
@@ -412,23 +420,52 @@ Write the debrief now."""
         # Fallback to Opus-only if OpenAI failed
         analysis = opus_analysis or '_(Analysis unavailable)_'
 
-    # Send — split if over Telegram limit
-    if len(analysis) <= 4000:
-        tg_send(analysis)
-    else:
-        chunks_out = []
-        current = ''
-        for para in analysis.split('\n\n'):
-            if len(current) + len(para) + 2 > 3800:
-                if current:
-                    chunks_out.append(current.strip())
-                current = para
-            else:
-                current += ('\n\n' if current else '') + para
-        if current:
-            chunks_out.append(current.strip())
-        for chunk in chunks_out:
-            tg_send(chunk)
+    # ── Step 4b: plain-language version for Salah (non-technical co-founder) ──
+    salah_debrief_prompt = f"""You are writing a post-meeting summary for Salah, co-founder of Amalfi AI.
+Salah is NOT technical. He is a business partner who wants to know what happened in plain English.
+
+Rules:
+- Address Salah directly ("you", "your team")
+- Zero technical jargon. No mention of APIs, repos, code, databases, deployments, or any developer terms.
+- Focus only on: what the meeting was about, what the client needs, what was agreed, what happens next.
+- Use plain business language a non-technical founder would use.
+- Under 250 words. Short paragraphs.
+- HTML bold for section headers.
+- Never use hyphens. Use em dashes (—) or rephrase.
+
+## Meeting: {meeting_name}
+## What happened (from the analysis)
+{analysis}
+
+Write the plain-language summary for Salah now."""
+
+    salah_analysis = call_openai(salah_debrief_prompt, model='gpt-5.2', temperature=0.65)
+    if not salah_analysis:
+        salah_analysis = analysis  # fallback to Josh's version
+
+    # Send Josh's version to Josh only, Salah's version to Salah only
+    def send_to_one(chat_id, text):
+        if len(text) <= 4000:
+            _tg_send_one(chat_id, text)
+        else:
+            chunks_out = []
+            current = ''
+            for para in text.split('\n\n'):
+                if len(current) + len(para) + 2 > 3800:
+                    if current:
+                        chunks_out.append(current.strip())
+                    current = para
+                else:
+                    current += ('\n\n' if current else '') + para
+            if current:
+                chunks_out.append(current.strip())
+            for chunk in chunks_out:
+                _tg_send_one(chat_id, chunk)
+
+    if BOT_TOKEN and CHAT_ID:
+        send_to_one(CHAT_ID, analysis)
+    if BOT_TOKEN and SALAH_CHAT_ID:
+        send_to_one(SALAH_CHAT_ID, salah_analysis)
 
     print(f"  [ok] Telegram debrief sent: {meeting_name}")
 

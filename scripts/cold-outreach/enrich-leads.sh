@@ -38,7 +38,7 @@ mkdir -p "$WS/out"
 ARG1="${1:-}"
 ARG2="${2:-}"
 
-export SUPABASE_URL KEY APOLLO_KEY HUNTER_KEY APIFY_KEY BOT_TOKEN CHAT_ID LOG WS ARG1 ARG2
+export SUPABASE_URL KEY APOLLO_KEY HUNTER_KEY APIFY_KEY BOT_TOKEN CHAT_ID LOG WS ARG1 ARG2 SKIP_CHAIN
 
 python3 << 'PY'
 import json, os, sys, re, urllib.request, urllib.parse, datetime, time
@@ -698,4 +698,13 @@ log(summary.replace('<b>','').replace('</b>',''))
 
 if success > 0:
     tg(summary)
+
+print(f'ENRICHED:{success}')
 PY
+
+# ── Auto-chain: trigger AI analysis after enrichment ─────────────────────────
+if [[ "${SKIP_CHAIN:-false}" != "true" && "${ARG1:-}" != "--lead" && "${ARG1:-}" != "--email" ]]; then
+    echo ""
+    echo "── Auto-analysing enriched leads ──"
+    SKIP_CHAIN=true bash "$WS/scripts/cold-outreach/analyse-leads.sh" --all --limit 50 || true
+fi

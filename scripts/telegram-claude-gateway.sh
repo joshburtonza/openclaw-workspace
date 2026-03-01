@@ -759,14 +759,23 @@ TODAY=$(date '+%A, %d %B %Y %H:%M SAST')
 LONG_TERM_MEMORY=$(cat "$WS/memory/MEMORY.md" 2>/dev/null || echo "")
 CURRENT_STATE=$(cat "$WS/CURRENT_STATE.md" 2>/dev/null || echo "")
 RESEARCH_INTEL=$(cat "$WS/memory/research-intel.md" 2>/dev/null || echo "")
-JOSH_PROFILE=$(cat "$WS/memory/josh-profile.md" 2>/dev/null || echo "")
 
 # Load OS identity
 OS_SOUL=$(cat "$WS/prompts/amalfi-os-soul.md" 2>/dev/null || echo "")
 
-# Load Sophia identity context
-SOPHIA_SOUL=$(cat "$WS/prompts/sophia/soul.md" 2>/dev/null || echo "")
-SOPHIA_MEMORY=$(cat "$WS/memory/sophia/memory.md" 2>/dev/null || echo "")
+# Per-user memory — inject the right profile for whoever is messaging
+if [[ "$USER_PROFILE" == "salah" ]]; then
+  USER_PERSONAL_MEMORY=$(cat "$WS/memory/salah-memory.md" 2>/dev/null || echo "")
+  USER_TASKS_MEMORY=$(cat "$WS/memory/salah-tasks.md" 2>/dev/null || echo "")
+  SOPHIA_SOUL=""
+  SOPHIA_MEMORY=""
+else
+  USER_PERSONAL_MEMORY=$(cat "$WS/memory/josh-profile.md" 2>/dev/null || echo "")
+  USER_TASKS_MEMORY=""
+  # Load Sophia identity context (Josh-only)
+  SOPHIA_SOUL=$(cat "$WS/prompts/sophia/soul.md" 2>/dev/null || echo "")
+  SOPHIA_MEMORY=$(cat "$WS/memory/sophia/memory.md" 2>/dev/null || echo "")
+fi
 
 # Inject group chat context
 if [[ -n "$GROUP_HISTORY_FILE" ]]; then
@@ -793,12 +802,33 @@ fi
 
 MEMORY_BLOCK=""
 if [[ -n "$LONG_TERM_MEMORY" ]]; then
-  MEMORY_BLOCK="
+  if [[ "$USER_PROFILE" == "salah" ]]; then
+    MEMORY_BLOCK="
+=== AMALFI OS — IDENTITY ===
+${OS_SOUL}
+
+=== WHO SALAH IS ===
+${USER_PERSONAL_MEMORY}
+
+=== SALAH'S TASKS & CONTEXT ===
+${USER_TASKS_MEMORY}
+
+=== LONG-TERM MEMORY ===
+${LONG_TERM_MEMORY}
+
+=== CURRENT SYSTEM STATE ===
+${CURRENT_STATE}
+
+=== STRATEGIC RESEARCH INTELLIGENCE ===
+${RESEARCH_INTEL}
+"
+  else
+    MEMORY_BLOCK="
 === AMALFI OS — IDENTITY ===
 ${OS_SOUL}
 
 === WHO JOSH IS ===
-${JOSH_PROFILE}
+${USER_PERSONAL_MEMORY}
 
 === SOPHIA — WHO SHE IS ===
 ${SOPHIA_SOUL}
@@ -815,6 +845,7 @@ ${CURRENT_STATE}
 === STRATEGIC RESEARCH INTELLIGENCE ===
 ${RESEARCH_INTEL}
 "
+  fi
 fi
 
 WEB_BLOCK=""
