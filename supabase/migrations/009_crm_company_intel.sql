@@ -13,4 +13,5 @@ ALTER TABLE leads
   ADD COLUMN IF NOT EXISTS annual_revenue        TEXT,
   ADD COLUMN IF NOT EXISTS founded_year          INTEGER,
   ADD COLUMN IF NOT EXISTS seniority             TEXT,
+  ADD COLUMN IF NOT EXISTS headline              TEXT,
   ADD COLUMN IF NOT EXISTS departments           TEXT[];

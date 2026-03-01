@@ -649,6 +649,6 @@ for lead in leads:
 summary = f'✅ <b>Lead enrichment complete</b>\n\n• Verified: {success}\n• Not found/invalid: {failed}\n• Total processed: {len(leads)}'
 log(summary.replace('<b>','').replace('</b>',''))
 
-if success > 0 or failed > 0:
+if success > 0:
     tg(summary)
 PY
