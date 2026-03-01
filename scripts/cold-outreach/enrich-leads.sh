@@ -132,29 +132,57 @@ def apollo_org_enrich(domain):
         if not org:
             return {}
 
-        # Tech stack: list of tool names
-        techs = [t.get('name') for t in (org.get('technologies') or []) if t.get('name')]
-
-        # Keywords / specialties
+        # Tech stack
+        techs    = [t.get('name') for t in (org.get('current_technologies') or org.get('technologies') or []) if t.get('name')]
         keywords = org.get('keywords') or []
+        revenue  = org.get('organization_revenue_printed') or org.get('annual_revenue_printed')
 
-        # Revenue: prefer printed label
-        revenue = org.get('organization_revenue_printed') or org.get('annual_revenue_printed')
+        # Funding
+        fe = org.get('funding_events') or []
+        funding_events_clean = [
+            {k: v for k, v in ev.items() if k in ('date', 'type', 'investors', 'amount', 'currency', 'news_url')}
+            for ev in fe
+        ] if fe else None
+
+        # Dept head count — strip zero-value entries for cleanliness
+        dhc_raw = org.get('departmental_head_count') or {}
+        dhc = {k: v for k, v in dhc_raw.items() if v and v > 0} or None
+
+        # Company phone — prefer sanitized
+        phone_obj = org.get('primary_phone') or {}
+        phone = phone_obj.get('sanitized_number') or org.get('sanitized_phone') or org.get('phone') or None
+
+        # Languages
+        langs = org.get('languages') or None
 
         result = {
-            'company_description':  (org.get('short_description') or '')[:500] or None,
-            'tech_stack':           techs if techs else None,
-            'company_keywords':     keywords[:20] if keywords else None,
-            'twitter_url':          org.get('twitter_url') or None,
-            'company_linkedin_url': org.get('linkedin_url') or None,
-            'annual_revenue':       revenue or None,
-            'founded_year':         org.get('founded_year') or None,
-            # Update employee count only if we have nothing yet
-            'employee_count_org':   org.get('estimated_num_employees') or None,
-            'industry_org':         org.get('industry') or None,
+            # Already captured fields
+            'company_description':    (org.get('short_description') or '')[:500] or None,
+            'tech_stack':             techs if techs else None,
+            'company_keywords':       keywords[:20] if keywords else None,
+            'twitter_url':            org.get('twitter_url') or None,
+            'company_linkedin_url':   org.get('linkedin_url') or None,
+            'annual_revenue':         revenue or None,
+            'founded_year':           org.get('founded_year') or None,
+            'employee_count_org':     org.get('estimated_num_employees') or None,
+            'industry_org':           org.get('industry') or None,
+            # New fields
+            'logo_url':               org.get('logo_url') or None,
+            'company_phone':          phone,
+            'alexa_ranking':          org.get('alexa_ranking') or None,
+            'facebook_url':           org.get('facebook_url') or None,
+            'angellist_url':          org.get('angellist_url') or None,
+            'dept_head_count':        dhc,
+            'company_languages':      langs if langs else None,
+            'market_cap':             org.get('market_cap') or None,
+            'publicly_traded_symbol': org.get('publicly_traded_symbol') or None,
+            'publicly_traded_exchange': org.get('publicly_traded_exchange') or None,
+            'total_funding':          org.get('total_funding_printed') or None,
+            'latest_funding_stage':   org.get('latest_funding_stage') or None,
+            'funding_events':         funding_events_clean,
         }
-        log(f'  Apollo org: description={bool(result["company_description"])}, '
-            f'techs={len(techs)}, revenue={revenue}, twitter={bool(result["twitter_url"])}')
+        log(f'  Apollo org: desc={bool(result["company_description"])}, techs={len(techs)}, '
+            f'revenue={revenue}, funding={result["latest_funding_stage"]}, alexa={result["alexa_ranking"]}')
         return result
     except Exception as e:
         log(f'  Apollo org error: {e}')
@@ -204,6 +232,10 @@ def apollo_find_email(first_name, last_name, domain, company=''):
             'show_intent':       p.get('show_intent') or None,
             'intent_strength':   p.get('intent_strength') or None,
             'prev_companies':    prev_companies or None,
+            # New person fields
+            'person_city':       p.get('city') or None,
+            'person_country':    p.get('country') or None,
+            'person_timezone':   p.get('time_zone') or None,
         }
         if email:
             log(f'  Apollo found email: {email}')
@@ -354,6 +386,65 @@ async function pageFunction(context) {
         log(f'  Apify scrape error: {e}')
         return []
 
+# ── Shared write helpers ──────────────────────────────────────────────────────
+def _apply_person_enrichment(update, lead, e):
+    """Write Apollo person fields into the update dict, skipping fields already set."""
+    if not e: return
+    if e.get('linkedin'):                              update['linkedin_url']   = e['linkedin']
+    if e.get('title') and not lead.get('title'):       update['title']          = e['title']
+    if e.get('apollo_id') and not lead.get('apollo_id'): update['apollo_id']    = e['apollo_id']
+    if e.get('seniority') and not lead.get('seniority'): update['seniority']    = e['seniority']
+    if e.get('departments') and not lead.get('departments'): update['departments'] = e['departments']
+    if e.get('headline') and not lead.get('headline'): update['headline']       = e['headline']
+    if e.get('photo') and not lead.get('photo_url'):   update['photo_url']      = e['photo']
+    if e.get('person_city') and not lead.get('person_city'): update['person_city'] = e['person_city']
+    if e.get('person_country') and not lead.get('person_country'): update['person_country'] = e['person_country']
+    if e.get('person_timezone') and not lead.get('person_timezone'): update['person_timezone'] = e['person_timezone']
+
+def _apply_org_enrichment(update, lead, o):
+    """Write Apollo org fields into the update dict, skipping fields already set."""
+    if not o: return
+    if o.get('company_description') and not lead.get('company_description'):
+        update['company_description']    = o['company_description']
+    if o.get('tech_stack'):                            update['tech_stack']              = o['tech_stack']
+    if o.get('company_keywords'):                      update['company_keywords']         = o['company_keywords']
+    if o.get('twitter_url') and not lead.get('twitter_url'):
+        update['twitter_url']            = o['twitter_url']
+    if o.get('company_linkedin_url') and not lead.get('company_linkedin_url'):
+        update['company_linkedin_url']   = o['company_linkedin_url']
+    if o.get('annual_revenue') and not lead.get('annual_revenue'):
+        update['annual_revenue']         = o['annual_revenue']
+    if o.get('founded_year') and not lead.get('founded_year'):
+        update['founded_year']           = o['founded_year']
+    if o.get('employee_count_org') and not lead.get('employee_count'):
+        update['employee_count']         = o['employee_count_org']
+    if o.get('industry_org') and not lead.get('industry'):
+        update['industry']               = o['industry_org']
+    # New fields
+    if o.get('logo_url') and not lead.get('logo_url'):
+        update['logo_url']               = o['logo_url']
+    if o.get('company_phone') and not lead.get('company_phone'):
+        update['company_phone']          = o['company_phone']
+    if o.get('alexa_ranking') and not lead.get('alexa_ranking'):
+        update['alexa_ranking']          = o['alexa_ranking']
+    if o.get('facebook_url') and not lead.get('facebook_url'):
+        update['facebook_url']           = o['facebook_url']
+    if o.get('angellist_url') and not lead.get('angellist_url'):
+        update['angellist_url']          = o['angellist_url']
+    if o.get('dept_head_count'):                       update['dept_head_count']          = o['dept_head_count']
+    if o.get('company_languages'):                     update['company_languages']        = o['company_languages']
+    if o.get('market_cap') and not lead.get('market_cap'):
+        update['market_cap']             = o['market_cap']
+    if o.get('publicly_traded_symbol') and not lead.get('publicly_traded_symbol'):
+        update['publicly_traded_symbol'] = o['publicly_traded_symbol']
+    if o.get('publicly_traded_exchange') and not lead.get('publicly_traded_exchange'):
+        update['publicly_traded_exchange'] = o['publicly_traded_exchange']
+    if o.get('total_funding') and not lead.get('total_funding'):
+        update['total_funding']          = o['total_funding']
+    if o.get('latest_funding_stage') and not lead.get('latest_funding_stage'):
+        update['latest_funding_stage']   = o['latest_funding_stage']
+    if o.get('funding_events'):                        update['funding_events']           = o['funding_events']
+
 # ── Main enrichment waterfall ─────────────────────────────────────────────────
 def enrich_lead(lead):
     lead_id    = lead['id']
@@ -458,40 +549,8 @@ def enrich_lead(lead):
     }
     if found_email and found_email != email:
         update['email'] = found_email
-    if enrichment_data.get('linkedin'):
-        update['linkedin_url'] = enrichment_data['linkedin']
-    if enrichment_data.get('title') and not lead.get('title'):
-        update['title'] = enrichment_data['title']
-    if enrichment_data.get('apollo_id') and not lead.get('apollo_id'):
-        update['apollo_id'] = enrichment_data['apollo_id']
-    if enrichment_data.get('seniority') and not lead.get('seniority'):
-        update['seniority'] = enrichment_data['seniority']
-    if enrichment_data.get('departments') and not lead.get('departments'):
-        update['departments'] = enrichment_data['departments']
-    if enrichment_data.get('headline') and not lead.get('headline'):
-        update['headline'] = enrichment_data['headline']
-
-    # Org enrichment fields (always write if we got data and field is empty)
-    if org_data.get('company_description') and not lead.get('company_description'):
-        update['company_description'] = org_data['company_description']
-    if org_data.get('tech_stack'):
-        update['tech_stack'] = org_data['tech_stack']
-    if org_data.get('company_keywords'):
-        update['company_keywords'] = org_data['company_keywords']
-    if org_data.get('twitter_url') and not lead.get('twitter_url'):
-        update['twitter_url'] = org_data['twitter_url']
-    if org_data.get('company_linkedin_url') and not lead.get('company_linkedin_url'):
-        update['company_linkedin_url'] = org_data['company_linkedin_url']
-    if org_data.get('annual_revenue') and not lead.get('annual_revenue'):
-        update['annual_revenue'] = org_data['annual_revenue']
-    if org_data.get('founded_year') and not lead.get('founded_year'):
-        update['founded_year'] = org_data['founded_year']
-    # Update employee_count from org if not set
-    if org_data.get('employee_count_org') and not lead.get('employee_count'):
-        update['employee_count'] = org_data['employee_count_org']
-    # Update industry from org if not set
-    if org_data.get('industry_org') and not lead.get('industry'):
-        update['industry'] = org_data['industry_org']
+    _apply_person_enrichment(update, lead, enrichment_data)
+    _apply_org_enrichment(update, lead, org_data)
 
     supa_patch(f'leads?id=eq.{lead_id}', update)
     log(f'  → {email_status} | email: {found_email} | source: {source or "none"}')
@@ -519,26 +578,9 @@ def backfill_lead(lead):
 
     # Apollo org enrichment
     org_data = apollo_org_enrich(domain)
-    if org_data.get('company_description') and not lead.get('company_description'):
-        update['company_description'] = org_data['company_description']
-    if org_data.get('tech_stack'):
-        update['tech_stack'] = org_data['tech_stack']
-    if org_data.get('company_keywords'):
-        update['company_keywords'] = org_data['company_keywords']
-    if org_data.get('twitter_url') and not lead.get('twitter_url'):
-        update['twitter_url'] = org_data['twitter_url']
-    if org_data.get('company_linkedin_url') and not lead.get('company_linkedin_url'):
-        update['company_linkedin_url'] = org_data['company_linkedin_url']
-    if org_data.get('annual_revenue') and not lead.get('annual_revenue'):
-        update['annual_revenue'] = org_data['annual_revenue']
-    if org_data.get('founded_year') and not lead.get('founded_year'):
-        update['founded_year'] = org_data['founded_year']
-    if org_data.get('employee_count_org') and not lead.get('employee_count'):
-        update['employee_count'] = org_data['employee_count_org']
-    if org_data.get('industry_org') and not lead.get('industry'):
-        update['industry'] = org_data['industry_org']
+    _apply_org_enrichment(update, lead, org_data)
 
-    # Apollo person match — get profile without revealing email (no credits)
+    # Apollo person match — no email reveal (no credits used)
     if first and APOLLO_KEY:
         payload = {'first_name': first, 'last_name': last, 'domain': domain}
         if company: payload['organization_name'] = company
@@ -553,22 +595,25 @@ def backfill_lead(lead):
                 d = json.loads(r.read())
             p = d.get('person') or {}
             if p:
-                eh = p.get('employment_history') or []
-                if not lead.get('linkedin_url') and p.get('linkedin_url'):
-                    update['linkedin_url'] = p['linkedin_url']
-                if not lead.get('title') and p.get('title'):
-                    update['title'] = p['title']
-                if not lead.get('apollo_id') and p.get('id'):
-                    update['apollo_id'] = p['id']
-                if not lead.get('seniority') and p.get('seniority'):
-                    update['seniority'] = p['seniority']
-                if not lead.get('departments') and p.get('departments'):
-                    update['departments'] = p['departments']
-                if not lead.get('headline') and p.get('headline'):
-                    update['headline'] = p['headline']
+                enrichment = {
+                    'linkedin':       p.get('linkedin_url'),
+                    'title':          p.get('title'),
+                    'apollo_id':      p.get('id'),
+                    'photo':          p.get('photo_url'),
+                    'seniority':      p.get('seniority'),
+                    'departments':    p.get('departments'),
+                    'headline':       p.get('headline'),
+                    'person_twitter': p.get('twitter_url'),
+                    'person_city':    p.get('city'),
+                    'person_country': p.get('country'),
+                    'person_timezone':p.get('time_zone'),
+                }
+                _apply_person_enrichment(update, lead, enrichment)
+                # Person twitter only if org twitter not already queued
                 if p.get('twitter_url') and 'twitter_url' not in update:
                     update['twitter_url'] = p['twitter_url']
-                log(f'  Apollo person: linkedin={bool(p.get("linkedin_url"))}, seniority={p.get("seniority")}, headline={bool(p.get("headline"))}')
+                log(f'  Apollo person: linkedin={bool(p.get("linkedin_url"))}, seniority={p.get("seniority")}, '
+                    f'photo={bool(p.get("photo_url"))}, city={p.get("city")}')
         except Exception as e:
             log(f'  Apollo person error: {e}')
 
@@ -596,13 +641,15 @@ if ARG1 == '--backfill':
     # Re-enrich all leads that already have emails but are missing company_description
     # Runs Apollo person/match + org enrichment only — skips Hunter waterfall
     limit = int(ARG2) if ARG2 and ARG2.isdigit() else 50
+    # Target leads missing any of the new fields (logo, funding, photo, dept headcount)
     leads = supa_get(
-        f'leads?company_description=is.null'
-        f'&email_status=in.(valid,catch_all,unverified)'
+        f'leads?logo_url=is.null'
+        f'&email_status=in.(valid,catch_all,unverified,not_found)'
+        f'&status=neq.unsubscribed'
         f'&order=created_at.asc&limit={limit}&select=*'
     )
     if not leads:
-        log('All leads already have company data — nothing to backfill')
+        log('All leads already have full enrichment — nothing to backfill')
         sys.exit(0)
     log(f'Backfilling {len(leads)} lead(s) with Apollo person + org data...')
     for lead in leads:
