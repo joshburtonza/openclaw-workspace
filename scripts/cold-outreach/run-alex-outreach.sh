@@ -12,6 +12,9 @@ WS="/Users/henryburton/.openclaw/workspace-anthropic"
 ENV_FILE="$WS/.env.scheduler"
 [[ -f "$ENV_FILE" ]] && source "$ENV_FILE"
 
+source "$WS/scripts/lib/agent-registry.sh"
+agent_checkin "worker-outreach-sender" "worker" "sales-supervisor"
+
 SUPABASE_URL="https://afmpbtynucpbglwtbfuz.supabase.co"
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 FROM_ACCOUNT="alex@amalfiai.com"
@@ -323,99 +326,88 @@ def research_website(url, timeout=6):
 # ── Email generation ──────────────────────────────────────────────────────────
 
 def build_prompt(lead, step, website_context):
-    fname    = lead.get('first_name', 'there')
-    lname    = lead.get('last_name', '') or ''
-    company  = lead.get('company', '') or 'your company'
-    notes    = lead.get('notes', '') or ''
-    source   = lead.get('source', '')
-    is_person = source == 'linkedin'
-
-    industry = detect_industry(lead)
-    hook     = OUTCOME_HOOKS.get(industry, '')
+    fname   = lead.get('first_name', 'there')
+    company = lead.get('company', '') or 'your company'
+    notes   = lead.get('notes', '') or ''
 
     known_parts = []
     if notes:
         known_parts.append(notes[:300])
     if website_context:
-        known_parts.append(f"Website content: {website_context}")
+        known_parts.append(f"Website snippet: {website_context}")
     known = "\n".join(known_parts) or "No additional context available."
 
-    base_rules = """STRICT RULES — violating any of these means the email fails:
-- NO hyphens or dashes anywhere. Not in subject lines. Not in the body. Not ever.
-- NO corporate or marketing language. No "leverage", "synergies", "solutions", "streamline", "cutting-edge", "transform".
-- NO cliched openers. Not "I hope this finds you well", "I came across your company", "I wanted to reach out", "I noticed", "I stumbled upon".
-- NO AI-sounding phrases. No "In today's fast-paced world", "In an era of", "It's no secret that".
-- Subject line must sound like a human typed it fast. Short. No punchline. No exclamation marks.
-- Body must read like a real email from a real person who spent 10 minutes on your website. Casual but smart.
-- South African English.
-- Sign off: Alex, Amalfi AI (on two separate lines, no pipe symbol, no hyphens)
+    base_rules = """STRICT RULES. Violate any of these and the email fails.
+
+NO hyphens or dashes anywhere. Not in the subject. Not in the body. Not ever. Not a single one.
+NO corporate words: leverage, synergies, solutions, streamline, cutting edge, transform, innovative, seamless, empower, robust.
+NO banned phrases: "I hope this finds you well", "I came across", "I wanted to reach out", "I noticed", "I stumbled", "touch base", "circle back", "following up", "checking in".
+NO banned words: game changer, move the needle, best in class, deep dive, bandwidth, holistic, paradigm, synergy.
+NO "Cheers," or any word before the sign off. Sign off is Alex on line 1, Amalfi AI on line 2. That is it. No "Warm regards", no "Best", no "Thanks". Just the two lines.
+SA English throughout. These words are welcome if they fit naturally: howzit, kak, hectic, sharp, sorted, bru, ou, eish, ja, aweh, no stress. Do not force them.
+NEVER use "lekker". Do not use it anywhere.
+Subject line: short, human, no punchline, no exclamation marks, no capitalising every word.
+Email body: max 90 words. Reads like a real person typed it on their phone. Casual. Not polished. Not a template.
 
 Return EXACTLY this format with nothing before or after:
 Subject: [subject line]
-Body: [full email body including sign-off]"""
+Body: [full email body including sign off]"""
 
     if step == 1:
-        intro_style = (
-            f"You are writing to {fname} {lname}".strip() + (f", who works at {company}" if company else "") + "."
-            if is_person else
-            f"You are writing to whoever handles decisions at {company}."
-        )
-        specificity_note = (
-            f"Reference something concrete and specific about {fname}'s role or {company} from the context. Not a compliment. An observation that shows you actually looked."
-            if is_person else
-            f"Reference something specific about {company} from the context that shows you actually looked at them."
-        )
-        vertical_instruction = (
-            f"\n3b. Before moving to the audit offer, drop in one concrete outcome example "
-            f"specific to their industry — one sentence, natural, not a bullet. "
-            f"Adapt this reference (do not copy verbatim): \"{hook}\""
-        ) if hook else ""
+        return f"""You are Alex from Amalfi AI. You are South African. Write a genuine first cold email to {fname} at {company}.
 
-        return f"""You are Alex. You run Amalfi AI, a small AI agency in South Africa. You build AI agents that take over repetitive work for growing businesses: inbox management, lead follow up, content, admin ops. Your clients are small to mid size companies that want to move faster without hiring.
-
-{intro_style}
-
-Context about them:
+Context about {company}:
 {known}
 
-Write a first cold outreach email. Here is exactly what it needs to do:
+TONE REFERENCE — this is a real example of the exact style and feel you must match:
 
-1. Open with "Hey {fname}," on its own line.
-2. Write 1 to 2 sentences that show you actually looked at them. Be specific. Reference their actual work or situation, not just their industry. Do not compliment them. Just show you understand what they are dealing with.
-3. Introduce yourself naturally: "I run Amalfi AI" and in one plain sentence say what you actually do and why it is relevant to their situation specifically.{vertical_instruction}
-4. Offer the free audit: Tell them you do free AI audits where you look at their actual workflow, find where they are losing time and money, and come back with a plain English breakdown of what could be automated. Make clear there is no pitch, no commitment. You just look and report back.
-5. Close with one simple question or invitation. Not "would love to chat". Something natural like asking if they would want to do one, or if it is worth a quick conversation.
+"Howzit Warren, pretty sick what you guys are doing at Aura, we know you didnt ask for this but we spotted this change in the tech industry, we believe there could be a pretty big ROI in it for you guys, we arent sure if this will be a good fit for you guys but maybe we can hop on a call and have a chat about it. looking forward to hearing from you"
 
-{specificity_note}
+Write a version of that for {fname} at {company}. Do NOT copy it word for word. Same shape, same energy, same length. Key requirements:
+
+1. "Howzit {fname}," on its own line.
+2. One short, enthusiastic line about {company} using something real from the context. Same energy as "pretty sick what you guys are doing at Aura". Not a detailed description of their business. Not a challenge they face. Just genuine, brief enthusiasm for what they are building or doing.
+3. "we know you didnt ask for this" — use "we" not "I". Transparent and direct.
+4. "we spotted this change in the tech industry" — keep it vague like that. Do NOT name what the change is or which specific tech. The curiosity is the hook.
+5. "pretty big ROI in it for you guys" — casual, not corporate.
+6. "we arent sure if this will be a good fit" — genuinely honest.
+7. "maybe we can hop on a call and have a chat about it" or similar casual invite. Then end with "looking forward to hearing from you" as the final line before sign-off.
+
+The whole email is one short paragraph, maybe 2 to 3 sentences. Flows like texting. Lowercase is fine. Casual punctuation is fine.
 
 {base_rules}"""
 
     elif step == 2:
-        return f"""You are Alex from Amalfi AI. You sent {fname} at {company} an email 4 days ago about a free AI audit offer. No reply.
+        return f"""You are Alex from Amalfi AI. Second email to {fname} at {company}. First email got no reply.
 
-Context about them:
-{known}
+TONE REFERENCE — match this exactly in shape and energy:
+"Hey Warren, we know cold outreach is shit, but a man's gotta do what a man's gotta do to get business right. We still feel this might be great tech for you guys, would you guys be down for a meet or even a Loom (short recorded video), could work?"
 
-Write a short follow up. Rules for this one specifically:
-- Do NOT say "just following up", "checking in", "circling back", or "wanted to resurface this".
-- Open with "Hey {fname}," on its own line.
-- Come at it from a slightly different angle. Pick something new from the context to lead with, or acknowledge that inboxes are chaos and keep it brief.
-- Remind them the free audit is still on the table. Keep it one sentence.
-- 3 sentences total in the body max.
-- Close naturally. Not "let me know". Something human.
+Write a version for {fname} at {company}. Same shape. Requirements:
+1. "Hey {fname}," on its own line.
+2. Acknowledge cold outreach is kak but you are doing it anyway because you have to. "a man's gotta do what a man's gotta do to get business right" energy — honest and a little self-aware. Use "we" not "I".
+3. "We still feel this might be great for you guys" — one sentence, low pressure, using "we".
+4. Offer a Loom as an alternative to a call. A Loom is a short recorded video. Phrase it casually like Josh did: "would you guys be down for a meet or even a Loom, could work?" — do not over-explain what a Loom is.
+
+Two to three sentences total. One short paragraph. Flows like texting. Lowercase fine.
 
 {base_rules}"""
 
     else:
-        return f"""You are Alex from Amalfi AI. This is your third and last email to {fname} at {company}. Two emails, no reply.
+        return f"""You are Alex from Amalfi AI. Third and last email to {fname} at {company}. Two emails, no reply.
 
-Write a short graceful close. Rules:
-- Open with "Hey {fname}," on its own line.
-- 2 sentences in the body. That is it.
-- First sentence: acknowledge timing might just be off and that is fine.
-- Second sentence: leave the door open. Something like telling them the free audit offer does not expire and they can come back whenever.
-- No guilt. No passive aggression. No "I understand you must be busy."
-- Warm and genuine. Like a real person who is not desperate.
+TONE REFERENCE — match this exactly in shape and energy:
+"fine, play hard to get, it's cool, i like the chase. but not at the risk of annoying you. door's always open whenever you're ready."
+
+Write a version for {fname}. Same shape. Requirements:
+1. "Hey {fname}," on its own line.
+2. "fine, play hard to get, it's cool" energy — amused, not bitter, not desperate. You actually respect the move.
+3. One line: you are not going to keep pushing at the risk of being annoying.
+4. Leave the door open. No expiry. Reach out whenever.
+
+Two to three sentences max. Flows like a text. Lowercase fine.
+Subject: something casual like "fine" or "last one" or "aight" — short, lowercase.
+Do NOT guilt-trip. Do NOT say "I understand you must be busy."
 
 {base_rules}"""
 
@@ -473,7 +465,7 @@ def send_email(to_email, subject, html_body, track=True):
         raise RuntimeError(f"gog send failed: {result.stderr[:300]}")
     try:
         data = json.loads(result.stdout)
-        msg_id      = data.get('message_id') or data.get('gmail_message_id') or ''
+        msg_id      = data.get('messageId') or data.get('message_id') or data.get('gmail_message_id') or ''
         tracking_id = data.get('tracking_id') or ''
         return msg_id, tracking_id
     except Exception:
@@ -565,15 +557,28 @@ try:
     subject, body = generate_email(lead, step, ctx)
     print(f"[alex] Subject: {subject}")
 
-    # Build HTML body — gog --track injects the CF Worker pixel automatically.
-    # We also embed the Vercel pixel as fallback (fires if CF Worker is down).
+    # Build HTML body — three-layer open tracking:
+    #   1. CF Worker pixel (via gog --track): catches Apple Mail, Thunderbird, direct loaders
+    #   2. Vercel pixel (fallback): catches opens if CF Worker is down
+    #   3. Tracked "Amalfi AI" link: catches Gmail/Outlook which block pixels but pass clicks
     log_id      = str(uuid.uuid4())
     fallback_px = f'{VERCEL_PIXEL_BASE}?id={log_id}'
+    track_link  = f'{VERCEL_PIXEL_BASE}?id={log_id}&url=https://amalfiai.com'
+
+    # Replace "Amalfi AI" sign-off with a tracked link (invisible styling, natural colour)
+    import re as _re
+    body_html = body.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+    body_html = _re.sub(
+        r'Amalfi AI',
+        f'<a href="{track_link}" style="color:inherit;text-decoration:none;">Amalfi AI</a>',
+        body_html,
+        count=1,
+    )
+
     html_body = (
         '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#111;">'
-        + body.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+        + body_html
         + '</div>'
-        # Fallback Vercel pixel — silent if CF Worker is up, catches opens if it's down
         + f'<img src="{fallback_px}" width="1" height="1" alt="" style="display:none;border:0;" />'
     )
 
@@ -639,3 +644,5 @@ PY
 if [[ -n "${TASK_ID:-}" ]]; then
     task_complete "$TASK_ID" "Alex outreach run complete"
 fi
+
+agent_checkout "worker-outreach-sender" "idle" "Done"

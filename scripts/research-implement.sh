@@ -14,6 +14,10 @@ ENV_FILE="$WS/.env.scheduler"
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
 
 source "$WS/scripts/lib/task-helpers.sh"
+source "$WS/scripts/lib/agent-registry.sh"
+
+_AR_IMPL_START=$(python3 -c "import time; print(int(time.time()*1000))")
+agent_checkin "worker-task-implementer" "worker" "ops-supervisor"
 
 SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
@@ -400,3 +404,5 @@ PY
 done
 
 log "Run complete: ${TASKS_DONE} task(s) processed."
+
+agent_checkout "worker-task-implementer" "idle" "Done"

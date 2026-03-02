@@ -16,6 +16,8 @@ ENV_FILE="$WS/.env.scheduler"
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
 
 source "$WS/scripts/lib/task-helpers.sh"
+source "$WS/scripts/lib/agent-registry.sh"
+agent_checkin "worker-research-digest" "worker" "intel-supervisor"
 
 SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
@@ -826,3 +828,5 @@ if processed > 0:
 
 print(f"\nDone. Processed: {processed} | Errors: {errors} | New tasks: {new_tasks}")
 PY
+
+agent_checkout "worker-research-digest" "idle" "Done"

@@ -8,6 +8,9 @@
 set -euo pipefail
 WS="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$WS/.env.scheduler"
+source "$WS/scripts/lib/agent-registry.sh"
+agent_checkin "worker-email-opens" "worker" "sales-supervisor"
+
 LOG="$WS/out/email-opens.log"
 mkdir -p "$WS/out"
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
@@ -74,22 +77,41 @@ for row in rows:
     try:
         result = subprocess.run(
             ['gog', 'gmail', 'track', 'opens', tid,
-             '--account', 'alex@amalfiai.com', '--json', '--results-only'],
+             '--account', 'alex@amalfiai.com', '--json'],
             capture_output=True, text=True, timeout=15
         )
         if result.returncode != 0:
             continue
         data = json.loads(result.stdout)
-        human_opens = data.get('human_opens', 0)
-        first_human = data.get('first_human_open')
+        # gog may return a list of open events directly instead of a summary dict
+        if isinstance(data, list):
+            all_opens   = data
+            non_bot     = [o for o in data if not o.get('is_bot', False)]
+            human_opens = len(non_bot)
+            total_opens = len(data)
+            first_human = non_bot[0] if non_bot else None
+        else:
+            human_opens  = data.get('human_opens', 0)
+            total_opens  = data.get('total_opens', 0)
+            first_human  = data.get('first_human_open')
+            all_opens    = data.get('opens', [])
 
-        if human_opens > 0 and first_human:
-            opened_at = first_human.get('at') or first_human.get('opened_at')
+        # Primary: human opens (Apple Mail, direct loads).
+        # Fallback: total opens — Gmail & Outlook route images through their own
+        # proxy servers so the CF Worker marks them as bots, but Google's proxy
+        # only fires when a user actually opens the email (reliable signal).
+        count     = human_opens if human_opens > 0 else total_opens
+        first_at  = (first_human or {}).get('at') if first_human else None
+        if not first_at and all_opens:
+            first_at = all_opens[0].get('at')
+
+        if count > 0 and first_at:
             supa_patch(f"outreach_log?id=eq.{log_id}", {
-                "opened_at":  opened_at,
-                "open_count": human_opens,
+                "opened_at":  first_at,
+                "open_count": count,
             })
-            print(f"[opens] ✓ {tid[:20]}... → {human_opens} human opens, first: {opened_at}")
+            label = "human" if human_opens > 0 else "proxy"
+            print(f"[opens] ✓ {tid[:20]}... → {count} opens ({label}), first: {first_at}")
             opened_count += 1
 
     except Exception as e:
@@ -98,3 +120,5 @@ for row in rows:
 
 print(f"[opens] Done — {opened_count} newly opened emails recorded.")
 PY
+
+agent_checkout "worker-email-opens" "idle" "Done"

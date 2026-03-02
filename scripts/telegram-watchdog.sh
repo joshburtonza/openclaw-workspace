@@ -13,6 +13,7 @@ LABEL="com.amalfiai.telegram-poller"
 PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
 
 [[ -f "$ENV_FILE" ]] && source "$ENV_FILE"
+[[ -f "$WORKSPACE/scripts/lib/agent-registry.sh" ]] && source "$WORKSPACE/scripts/lib/agent-registry.sh" && agent_checkin "worker-telegram-watchdog" "worker" "comms-supervisor"
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"

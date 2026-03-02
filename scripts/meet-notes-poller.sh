@@ -13,6 +13,10 @@ WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
 source "$WS/scripts/lib/task-helpers.sh"
+source "$WS/scripts/lib/agent-registry.sh"
+
+_AR_MEET_START=$(python3 -c "import time; print(int(time.time()*1000))")
+agent_checkin "worker-meet-notes" "worker" "intel-supervisor"
 
 LOG="$WS/out/meet-notes-poller.log"
 SEEN_FILE="$WS/tmp/meet-notes-seen.txt"
@@ -539,3 +543,5 @@ PY
 
 task_complete "$TASK_ID" "Meet notes poller complete"
 log "Meet notes poller complete."
+
+agent_checkout "worker-meet-notes" "idle" "Done"

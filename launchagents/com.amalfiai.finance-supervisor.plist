@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.amalfiai.email-opens-poller</string>
+  <string>com.amalfiai.finance-supervisor</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/cold-outreach/poll-email-opens.sh</string>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/conductor/finance-supervisor.sh</string>
   </array>
   <key>StartInterval</key>
-  <integer>300</integer>
+  <integer>14400</integer>
   <key>RunAtLoad</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/henryburton/.openclaw/workspace-anthropic/out/email-opens.log</string>
+  <string>/Users/henryburton/.openclaw/workspace-anthropic/out/finance-supervisor.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/henryburton/.openclaw/workspace-anthropic/out/email-opens.err.log</string>
+  <string>/Users/henryburton/.openclaw/workspace-anthropic/out/finance-supervisor.err.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>

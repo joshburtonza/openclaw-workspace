@@ -12,6 +12,8 @@ WORKSPACE="/Users/henryburton/.openclaw/workspace-anthropic"
 ENV_FILE="$WORKSPACE/.env.scheduler"
 [[ -f "$ENV_FILE" ]] && source "$ENV_FILE"
 source "$WORKSPACE/scripts/lib/task-helpers.sh"
+source "$WORKSPACE/scripts/lib/agent-registry.sh"
+agent_checkin "worker-data-os-sync" "worker" "finance-supervisor"
 
 unset CLAUDECODE
 
@@ -213,3 +215,5 @@ PYEOF
 
 task_complete "$TASK_ID" "Dashboard written: data/dashboard.json and data/dashboard.md"
 echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") data-os-sync complete"
+
+agent_checkout "worker-data-os-sync" "idle" "Done"

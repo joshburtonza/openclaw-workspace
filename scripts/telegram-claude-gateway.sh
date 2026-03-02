@@ -25,6 +25,10 @@ AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
 WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
+if [[ -f "$WS/scripts/lib/agent-registry.sh" ]]; then
+    source "$WS/scripts/lib/agent-registry.sh"
+    agent_checkin "worker-telegram-josh" "worker" "comms-supervisor"
+fi
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 export BOT_TOKEN

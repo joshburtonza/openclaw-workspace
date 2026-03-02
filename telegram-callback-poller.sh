@@ -30,6 +30,8 @@ trap 'rm -f "$PIDFILE"; exit 0' EXIT INT TERM
 # Load secrets from env file
 ENV_FILE="/Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler"
 if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
+_REG_LIB="/Users/henryburton/.openclaw/workspace-anthropic/scripts/lib/agent-registry.sh"
+[[ -f "$_REG_LIB" ]] && source "$_REG_LIB" && agent_checkin "worker-telegram-josh" "worker" "comms-supervisor"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 ANON_KEY="${SUPABASE_ANON_KEY:-}"

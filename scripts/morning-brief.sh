@@ -7,6 +7,8 @@ WORKSPACE="/Users/henryburton/.openclaw/workspace-anthropic"
 ENV_FILE="$WORKSPACE/.env.scheduler"
 source "$ENV_FILE"
 source "$WORKSPACE/scripts/lib/task-helpers.sh"
+source "$WORKSPACE/scripts/lib/agent-registry.sh"
+agent_checkin "worker-morning-brief" "worker" "intel-supervisor"
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 unset CLAUDECODE
@@ -1064,3 +1066,5 @@ fi
 
 task_complete "$TASK_ID" "Morning brief sent"
 echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") Morning brief complete"
+
+agent_checkout "worker-morning-brief" "idle" "Done"

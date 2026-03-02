@@ -12,6 +12,9 @@ WS="$AOS_ROOT"
 ENV_FILE="$WS/.env.scheduler"
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
 
+source "$WS/scripts/lib/agent-registry.sh"
+agent_checkin "worker-memory-writer" "worker" "intel-supervisor"
+
 SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 LOG="$WS/out/memory-writer.log"
@@ -304,3 +307,5 @@ print(f"Done — {applied}/{len(signals)} signal(s) processed, user_models and a
 PY
 
 log "Memory writer complete."
+
+agent_checkout "worker-memory-writer" "idle" "Done"

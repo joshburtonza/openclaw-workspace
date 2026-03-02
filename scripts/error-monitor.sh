@@ -13,6 +13,9 @@ if [[ -f "$ENV_FILE" ]]; then
   source "$ENV_FILE"
 fi
 
+source "$WORKSPACE/scripts/lib/agent-registry.sh"
+agent_checkin "worker-error-monitor" "worker" "ops-supervisor"
+
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 _CHAT_ID_FILE="/Users/henryburton/.openclaw/workspace-anthropic/tmp/josh_private_chat_id"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-$(cat "$_CHAT_ID_FILE" 2>/dev/null || echo "1140320036")}"
@@ -248,3 +251,5 @@ for line in os.environ.get('_EM_ERRORS', '').strip().split('\n'):
     create_task(title, desc)
 PYEOF
 fi
+
+agent_checkout "worker-error-monitor" "idle" "Done"
