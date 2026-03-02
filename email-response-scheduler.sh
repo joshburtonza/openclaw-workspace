@@ -79,8 +79,8 @@ AUTO=$(curl -s -G "${SUPABASE_URL}/rest/v1/email_queue" \
 export APPROVED AUTO
 ROWS=$(python3 -c "
 import json, os, sys
-a = json.loads(os.environ.get('APPROVED','[]'))
-b = json.loads(os.environ.get('AUTO','[]'))
+a = json.loads(os.environ.get('APPROVED','[]') or '[]')
+b = json.loads(os.environ.get('AUTO','[]') or '[]')
 if not isinstance(a, list): a = []
 if not isinstance(b, list): b = []
 print(json.dumps(a + b))
@@ -94,6 +94,8 @@ fi
 
 export ROWS
 python3 - <<'PY'
+import warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 import json, os, subprocess, datetime, requests
 
 SUPABASE_URL=os.environ['SUPABASE_URL']
@@ -308,6 +310,8 @@ export BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 export CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
 
 python3 - <<'RETAINER_PY'
+import warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 import json, os, requests, datetime, subprocess, sys
 
 URL     = os.environ['SUPABASE_URL']
