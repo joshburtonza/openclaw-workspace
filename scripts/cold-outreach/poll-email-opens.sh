@@ -78,7 +78,7 @@ for row in rows:
         result = subprocess.run(
             ['gog', 'gmail', 'track', 'opens', tid,
              '--account', 'alex@amalfiai.com', '--json'],
-            capture_output=True, text=True, timeout=15
+            capture_output=True, text=True, timeout=45
         )
         if result.returncode != 0:
             continue
@@ -86,7 +86,7 @@ for row in rows:
         # gog may return a list of open events directly instead of a summary dict
         if isinstance(data, list):
             all_opens   = data
-            non_bot     = [o for o in data if not o.get('is_bot', False)]
+            non_bot     = [o for o in data if isinstance(o, dict) and not o.get('is_bot', False)]
             human_opens = len(non_bot)
             total_opens = len(data)
             first_human = non_bot[0] if non_bot else None
@@ -94,16 +94,25 @@ for row in rows:
             human_opens  = data.get('human_opens', 0)
             total_opens  = data.get('total_opens', 0)
             first_human  = data.get('first_human_open')
+            # first_human_open may be returned as a list; unwrap it
+            if isinstance(first_human, list):
+                first_human = first_human[0] if first_human else None
             all_opens    = data.get('opens', [])
+
+        def _get_ts(obj):
+            """Extract timestamp from an open event dict; gog uses 'at' or 'opened_at'."""
+            if not isinstance(obj, dict):
+                return None
+            return obj.get('at') or obj.get('opened_at')
 
         # Primary: human opens (Apple Mail, direct loads).
         # Fallback: total opens — Gmail & Outlook route images through their own
         # proxy servers so the CF Worker marks them as bots, but Google's proxy
         # only fires when a user actually opens the email (reliable signal).
         count     = human_opens if human_opens > 0 else total_opens
-        first_at  = (first_human or {}).get('at') if first_human else None
+        first_at  = _get_ts(first_human) if first_human else None
         if not first_at and all_opens:
-            first_at = all_opens[0].get('at')
+            first_at = _get_ts(all_opens[0])
 
         if count > 0 and first_at:
             supa_patch(f"outreach_log?id=eq.{log_id}", {
