@@ -487,7 +487,7 @@ score_used = None
 try:
     # ── Step 3 candidates (contacted, steps 1+2 done, 9+ days since step 2) ──
     def try_step3():
-        leads = supa_get("leads?status=eq.contacted&select=*&order=last_contacted_at.asc&limit=200&email_status=not.in.(invalid,risky)")
+        leads = supa_get("leads?status=eq.contacted&select=*&order=last_contacted_at.asc&limit=200&email_status=eq.valid")
         for lead in leads:
             logs = supa_get(f"outreach_log?lead_id=eq.{lead['id']}&select=step,sent_at&order=step.asc")
             if sorted(l['step'] for l in logs) != [1, 2]:
@@ -499,7 +499,7 @@ try:
 
     # ── Step 2 candidates (contacted, step 1 done, 4+ days since step 1) ──
     def try_step2():
-        leads = supa_get("leads?status=eq.contacted&select=*&order=last_contacted_at.asc&limit=200&email_status=not.in.(invalid,risky)")
+        leads = supa_get("leads?status=eq.contacted&select=*&order=last_contacted_at.asc&limit=200&email_status=eq.valid")
         for lead in leads:
             logs = supa_get(f"outreach_log?lead_id=eq.{lead['id']}&select=step,sent_at&order=step.asc")
             if [l['step'] for l in logs] != [1]:
@@ -513,7 +513,7 @@ try:
     def try_step1():
         # Fetch a generous batch, score them all, return the best
         # Skip leads flagged as invalid or risky by email verification
-        candidates = supa_get("leads?status=eq.new&select=*&limit=500&order=created_at.asc&email_status=not.in.(invalid,risky)")
+        candidates = supa_get("leads?status=eq.new&select=*&limit=500&order=created_at.asc&email_status=eq.valid")
         scored = []
         for lead in candidates:
             # Quick check: skip if already has a log entry (race condition guard)
