@@ -1,0 +1,8 @@
+{
+  "name": "visual-qa",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "puppeteer-core": "^23.0.0"
+  }
+}

@@ -88,7 +88,7 @@ while [[ $TASKS_DONE -lt $MAX_TASKS ]]; do
   # Time guard: stop before starting a new task if >8 min elapsed
   NOW=$(date +%s)
   ELAPSED=$((NOW - RUN_START))
-  if [[ $ELAPSED -gt 480 ]]; then
+  if [[ $ELAPSED -gt 840 ]]; then
     log "Time guard: ${ELAPSED}s elapsed — stopping after ${TASKS_DONE} task(s)"
     break
   fi
@@ -333,6 +333,47 @@ PY
   fi
 
   log "Implementation complete."
+
+  # ── Visual QA (web app repos only) ───────────────────────────────────────────
+  VISUAL_QA_PASSED=true
+  if [[ -n "$REPO_PATH" && -f "$REPO_PATH/package.json" ]]; then
+    log "Running visual QA for $REPO_KEY..."
+    if bash "$WS/scripts/visual-qa.sh" "$REPO_PATH" "$REPO_KEY" "$TASK_ID" "$TASK_TITLE" 2>&1; then
+      log "Visual QA passed"
+    else
+      log "Visual QA failed — keeping task open for review"
+      VISUAL_QA_PASSED=false
+    fi
+  fi
+
+  if [[ "$VISUAL_QA_PASSED" == "false" ]]; then
+    export _IMPL_TASK_ID="$TASK_ID" _IMPL_RESPONSE="$RESPONSE"
+    python3 - <<'PY'
+import os, json, urllib.request
+
+KEY     = os.environ['SUPABASE_KEY']
+URL     = os.environ['SUPABASE_URL']
+task_id = os.environ.get('_IMPL_TASK_ID', '')
+
+data = json.dumps({
+    "status":      "todo",
+    "description": "Visual QA failed — check Telegram for screenshots. Implementation may need fixes.",
+}).encode()
+req = urllib.request.Request(
+    f"{URL}/rest/v1/tasks?id=eq.{task_id}",
+    data=data,
+    headers={"apikey": KEY, "Authorization": f"Bearer {KEY}",
+             "Content-Type": "application/json", "Prefer": "return=minimal"},
+    method="PATCH",
+)
+try:
+    urllib.request.urlopen(req, timeout=10)
+except Exception as e:
+    print(f"Warning: task reset failed: {e}")
+PY
+    TASKS_DONE=$((TASKS_DONE + 1))
+    continue
+  fi
 
   # ── Mark done ────────────────────────────────────────────────────────────────
 

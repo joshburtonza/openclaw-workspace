@@ -1,11 +1,12 @@
 # Josh Availability
 
 ## Current Status
-**AVAILABLE** — Normal operations
+**OOO** — Josh requested hold on all auto-sends
 
 ## OOO Schedule
 | Date | Status | Notes |
 |------|--------|-------|
+| 2026-03-02 | OOO | Josh requested hold on all auto-sends |
 
 ## How This Works
 
