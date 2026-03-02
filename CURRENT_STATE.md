@@ -1,4 +1,4 @@
-# CURRENT STATE — 2026-03-01 01:00 UTC
+# CURRENT STATE — 2026-03-02 01:00 UTC
 > Auto-generated every night. Read this file for live operational context.
 
 ## Agent Health
@@ -7,10 +7,12 @@
   ✅ calendar-sync (exit 0)
   ✅ research-implement (exit 0)
   ✅ tiktok-live-reminder (exit 0)
+  ✅ telegram-watchdog (exit 0)
   ✅ alex-outreach (exit 0)
   ✅ nightly-flush (exit 0)
   ✅ discord-community-bot (exit 0)
   ✅ sophia-cron (exit 0)
+  ✅ salah-weekly-brief (exit 0)
   ✅ pending-nudge (exit 0)
   ✅ heartbeat (exit 0)
   ✅ apollo-sourcer (exit 0)
@@ -23,8 +25,8 @@
   ✅ agent-toggle-daemon (exit 0)
   ✅ agent-status-updater (exit 0)
   ✅ morning-video-scripts (exit 0)
-  ✅ whatsapp-capture (exit 0)
   ✅ nightly-state (exit 0)
+  ✅ whatsapp-capture (exit 0)
   ✅ weekly-memory (exit 0)
   ✅ research-digest (exit 0)
   ✅ claude-task-worker (exit 0)
@@ -32,6 +34,7 @@
   ✅ reminder-poller (exit 0)
   ✅ aos-value-report (exit 0)
   ✅ activity-tracker (exit 0)
+  ✅ salah-morning-brief (exit 0)
   ✅ nightly-github-sync (exit 0)
   ✅ enrich-leads (exit 0)
   ✅ sophia-followup (exit 0)
@@ -40,7 +43,7 @@
   ✅ data-os-sync (exit 0)
   ✅ email-response-scheduler (exit 0)
   ✅ sophia-outbound (exit 0)
-  ⚠️ telegram-poller (exit -9)
+  ✅ telegram-poller (exit 0)
   ✅ claude-startup (exit 0)
   ✅ memory-writer (exit 0)
   ✅ discord-morning-nudge (exit 0)
@@ -51,8 +54,8 @@
   ✅ telegram-health-check (exit 0)
 
 ## Email Queue
-  rejected: 21
-  sent: 20
+  rejected: 20
+  sent: 21
   skipped: 9
 
 ## Pending Approvals / Auto-Sends
@@ -65,17 +68,17 @@
   (none)
 
 ## Repo Status
-  workspace: 2 dirty
-  mission-control-hub: 2 dirty
+  workspace: 1 dirty, 1 ahead
+  mission-control-hub: clean
   qms-guard: clean
   favorite-flow: clean
 
 ## Recent Activity
-  2026-02-28 18:48 — dirty: workspace, mission-control-hub
-  2026-02-28 18:53 — dirty: workspace, mission-control-hub
-  2026-02-28 18:58 — dirty: workspace, mission-control-hub
-  2026-02-28 19:03 — dirty: workspace, mission-control-hub
-  2026-02-28 19:09 — dirty: workspace, mission-control-hub
+  2026-03-02 00:37 — dirty: workspace
+  2026-03-02 00:42 — dirty: workspace
+  2026-03-02 00:47 — dirty: workspace
+  2026-03-02 00:52 — dirty: workspace
+  2026-03-02 00:57 — dirty: workspace
 
 ## Scope Creep Alerts
   (none)
