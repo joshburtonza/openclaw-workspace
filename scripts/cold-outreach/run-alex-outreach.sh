@@ -41,7 +41,7 @@ import os, sys, json, subprocess, datetime, time, re, uuid
 import urllib.request, urllib.error
 from html.parser import HTMLParser
 
-TRACKING_BASE = "https://amalfi-mission-control.vercel.app/api/track-open"
+VERCEL_PIXEL_BASE = "https://amalfi-mission-control.vercel.app/api/track-open"
 
 SUPABASE_URL = os.environ['SUPABASE_URL']
 KEY          = os.environ['SUPABASE_KEY']
@@ -457,27 +457,27 @@ def generate_email(lead, step, website_context):
     return subject, body
 
 
-def send_email(to_email, subject, body, html_body=None):
+def send_email(to_email, subject, html_body, track=True):
+    """Send via gog with --track (primary). Returns (msg_id, tracking_id)."""
     args = ['gog', 'gmail', 'send',
             '--account', FROM_ACCOUNT,
             '--to', to_email,
             '--subject', subject,
+            '--body-html', html_body,
+            '--json',
             '--no-input']
-    if html_body:
-        args += ['--body-html', html_body]
-    else:
-        args += ['--body', body]
+    if track:
+        args.append('--track')
     result = subprocess.run(args, capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(f"gog send failed: {result.stderr[:300]}")
-    msg_id = ''
-    for line in result.stdout.split('\n'):
-        if 'message' in line.lower() and 'id' in line.lower():
-            parts = line.split()
-            if parts:
-                msg_id = parts[-1].strip()
-            break
-    return msg_id
+    try:
+        data = json.loads(result.stdout)
+        msg_id      = data.get('message_id') or data.get('gmail_message_id') or ''
+        tracking_id = data.get('tracking_id') or ''
+        return msg_id, tracking_id
+    except Exception:
+        return '', ''
 
 # ── Pick the next lead (priority: step 3 > step 2 > step 1 highest-scored) ───
 
@@ -565,25 +565,28 @@ try:
     subject, body = generate_email(lead, step, ctx)
     print(f"[alex] Subject: {subject}")
 
-    # Pre-generate log ID so tracking pixel can reference it before DB insert
-    log_id = str(uuid.uuid4())
-    pixel_url = f"{TRACKING_BASE}?id={log_id}"
+    # Build HTML body — gog --track injects the CF Worker pixel automatically.
+    # We also embed the Vercel pixel as fallback (fires if CF Worker is down).
+    log_id      = str(uuid.uuid4())
+    fallback_px = f'{VERCEL_PIXEL_BASE}?id={log_id}'
     html_body = (
         '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#111;">'
         + body.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
         + '</div>'
-        + f'<img src="{pixel_url}" width="1" height="1" alt="" style="display:none;border:0;" />'
+        # Fallback Vercel pixel — silent if CF Worker is up, catches opens if it's down
+        + f'<img src="{fallback_px}" width="1" height="1" alt="" style="display:none;border:0;" />'
     )
 
-    # Send
-    msg_id = send_email(email, subject, body, html_body=html_body)
-    print(f"[alex] Sent ✓ (msg_id={msg_id or 'n/a'})")
+    # Send — gog injects CF Worker pixel + returns tracking_id
+    msg_id, tracking_id = send_email(email, subject, html_body, track=True)
+    print(f"[alex] Sent ✓ (msg_id={msg_id or 'n/a'} tracking_id={tracking_id or 'n/a'})")
 
-    # Log — use pre-generated ID so pixel URL matches
+    # Log with pre-generated ID (matches fallback pixel) + CF tracking_id
     supa_post("outreach_log", {
         "id": log_id, "lead_id": lid, "step": step,
         "subject": subject, "body": body,
         "gmail_message_id": msg_id,
+        "tracking_id": tracking_id or None,
     })
 
     # Update lead
