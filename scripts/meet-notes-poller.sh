@@ -103,7 +103,7 @@ def call_claude(prompt, model):
         env.pop('CLAUDECODE', None)
         env.pop('CLAUDE_CODE', None)
         result = subprocess.run(
-            ['claude', '--print', '--model', model, '--dangerously-skip-permissions'],
+            ['/Users/henryburton/.openclaw/bin/claude-gated', '--print', '--model', model, '--dangerously-skip-permissions'],
             stdin=open(tmp.name), capture_output=True, text=True, timeout=120, env=env
         )
         return result.stdout.strip() or ''

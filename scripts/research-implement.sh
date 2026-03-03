@@ -351,14 +351,14 @@ __IMPL_PROMPT__
 
   RESPONSE=""
   if [[ -n "$REPO_PATH" ]]; then
-    RESPONSE=$(claude --print \
+    RESPONSE=$(/Users/henryburton/.openclaw/bin/claude-gated --print \
       --dangerously-skip-permissions \
       --model "$MODEL" \
       --add-dir "$WS" \
       --add-dir "$REPO_PATH" \
       < "$PROMPT_TMP" 2>/dev/null || echo "")
   else
-    RESPONSE=$(claude --print \
+    RESPONSE=$(/Users/henryburton/.openclaw/bin/claude-gated --print \
       --dangerously-skip-permissions \
       --model "$MODEL" \
       --add-dir "$WS" \

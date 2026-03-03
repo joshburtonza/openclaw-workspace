@@ -62,7 +62,7 @@ ${COMMITS}
 Reply with just the summary sentence(s), nothing else.
 PROMPT
 
-  SUMMARY=$(claude --print --model claude-haiku-4-5-20251001 < "$PROMPT_TMP" 2>/dev/null || echo "$REPO_NAME: development work committed")
+  SUMMARY=$(/Users/henryburton/.openclaw/bin/claude-gated --print --model claude-haiku-4-5-20251001 < "$PROMPT_TMP" 2>/dev/null || echo "$REPO_NAME: development work committed")
   rm -f "$PROMPT_TMP"
 
   SUMMARIES+=("${REPO_NAME}: ${SUMMARY}")

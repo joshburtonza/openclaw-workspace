@@ -40,7 +40,7 @@ print('\n'.join(lines))
 PY
 )
 
-# Write prompt to temp file (claude --print requires file input on this setup)
+# Write prompt to temp file (/Users/henryburton/.openclaw/bin/claude-gated --print requires file input on this setup)
 PROMPT_FILE=$(mktemp /tmp/dm-prompt-XXXXXX)
 cat > "$PROMPT_FILE" <<PROMPT
 You are a video production AI. Analyze this video transcript and identify every moment where a DATA VISUALIZATION would enhance the viewer's understanding.
@@ -106,7 +106,7 @@ PROMPT
 
 echo "[detect-data] Analyzing transcript for data mentions..."
 unset CLAUDECODE
-RESULT=$(claude --print < "$PROMPT_FILE" 2>/dev/null)
+RESULT=$(/Users/henryburton/.openclaw/bin/claude-gated --print < "$PROMPT_FILE" 2>/dev/null)
 rm -f "$PROMPT_FILE"
 export _DM_RESULT="$RESULT"
 export _DM_OUT_JSON="$OUT_JSON"

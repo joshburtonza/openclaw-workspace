@@ -131,7 +131,7 @@ Respond with valid JSON only.
 EOF
 
 unset CLAUDECODE
-RESPONSE=$(claude --print --model claude-haiku-4-5-20251001 < "$TMPFILE" 2>/dev/null || echo '{"status":"healthy","summary":"Comms supervisor run complete","commands":[],"metrics":{}}')
+RESPONSE=$(/Users/henryburton/.openclaw/bin/claude-gated --print --model claude-haiku-4-5-20251001 < "$TMPFILE" 2>/dev/null || echo '{"status":"healthy","summary":"Comms supervisor run complete","commands":[],"metrics":{}}')
 rm -f "$TMPFILE"
 
 export _RESP="$RESPONSE" _AR_KEY="$SUPABASE_KEY" _AR_URL="$SUPABASE_URL"

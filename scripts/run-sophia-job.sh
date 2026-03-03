@@ -2,7 +2,7 @@
 # run-sophia-job.sh
 # Sophia-specific job runner.
 # Prepends soul.md + instructions.md + memory.md before the job prompt,
-# then pipes the full assembled context to claude --print.
+# then pipes the full assembled context to /Users/henryburton/.openclaw/bin/claude-gated --print.
 #
 # Usage: run-sophia-job.sh <prompt-file> [job-name]
 

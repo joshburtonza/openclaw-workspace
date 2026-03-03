@@ -33,7 +33,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting $JOB_NAME" >> "$LOG"
 unset CLAUDECODE
 
 # Run Claude with full tool access — pipe prompt via stdin to avoid shell quoting issues
-claude --print \
+/Users/henryburton/.openclaw/bin/claude-gated --print \
   --dangerously-skip-permissions \
   --model claude-sonnet-4-6 \
   --add-dir "$WS" \

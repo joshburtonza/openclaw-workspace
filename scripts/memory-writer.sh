@@ -151,7 +151,7 @@ def claude_haiku(system_prompt, user_prompt):
     tmp.close()
     try:
         r = subprocess.run(
-            ['claude', '--print', '--model', HAIKU_MODEL, '--dangerously-skip-permissions',
+            ['/Users/henryburton/.openclaw/bin/claude-gated', '--print', '--model', HAIKU_MODEL, '--dangerously-skip-permissions',
              '--system-prompt', system_prompt],
             stdin=open(tmp.name), capture_output=True, text=True, timeout=180, env=env,
         )

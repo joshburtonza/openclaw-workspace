@@ -137,7 +137,7 @@ def run_claude(prompt_text, timeout=180):
         pf = f.name
     try:
         result = subprocess.run(
-            ['claude', '--print', '--model', MODEL],
+            ['/Users/henryburton/.openclaw/bin/claude-gated', '--print', '--model', MODEL],
             stdin=open(pf), capture_output=True, text=True, timeout=timeout, env=env,
         )
         return result.stdout.strip() or result.stderr.strip() or '(No response)'

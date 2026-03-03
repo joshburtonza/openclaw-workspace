@@ -58,7 +58,7 @@ Format as:
 Be ruthlessly concise. Only include genuinely useful long-term context. Max 20 bullet points total.
 PROMPT
 
-INSIGHTS=$(claude --print --model claude-sonnet-4-6 < "$PROMPT_TMP" 2>/dev/null)
+INSIGHTS=$(/Users/henryburton/.openclaw/bin/claude-gated --print --model claude-sonnet-4-6 < "$PROMPT_TMP" 2>/dev/null)
 rm -f "$PROMPT_TMP"
 
 if [[ -z "$INSIGHTS" ]]; then

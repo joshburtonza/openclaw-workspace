@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.amalfiai.statement-reminder</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>set -a; source /Users/henryburton/.openclaw/workspace-anthropic/.env.scheduler; set +a; curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_JOSH_CHAT_ID}&amp;text=📄 Reminder: pull your FNB bank statements and share with Claude to backfill this month's transactions.&amp;parse_mode=HTML" > /dev/null</string>
+  </array>
+
+  <!-- 12th of every month at 09:00 SAST -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Day</key>
+    <integer>12</integer>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/henryburton/.openclaw/workspace-anthropic/out/statement-reminder.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/henryburton/.openclaw/workspace-anthropic/out/statement-reminder.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>/Users/henryburton</string>
+  </dict>
+</dict>
+</plist>

@@ -41,7 +41,7 @@ echo "[parallel-ai] Firing Claude + ${MODEL} simultaneously..." >&2
 
 # Claude
 (
-  claude --print \
+  /Users/henryburton/.openclaw/bin/claude-gated --print \
     --dangerously-skip-permissions \
     --model claude-sonnet-4-6 \
     --add-dir "$WS" \

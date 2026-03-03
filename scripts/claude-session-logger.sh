@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # claude-session-logger.sh
 # Claude Code Stop hook — fires after every response.
-# Logs the last user message to interaction_log for adaptive memory.
+# 1. Logs the last user message to interaction_log (adaptive memory signal)
+# 2. Appends full terminal session to memory/YYYY-MM-DD.md (same as Telegram)
 # Must exit 0 to avoid blocking Claude.
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
@@ -16,13 +17,11 @@ HOOK_JSON=$(cat)
 export HOOK_JSON
 
 python3 - <<'PY'
-import sys, json, os, urllib.request, datetime
+import sys, json, os, urllib.request, datetime, pathlib
 
 KEY          = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
 SUPABASE_URL = 'https://afmpbtynucpbglwtbfuz.supabase.co'
-
-if not KEY:
-    sys.exit(0)
+WS           = os.environ.get('AOS_ROOT', os.path.expanduser('~/.openclaw/workspace-anthropic'))
 
 try:
     hook_data = json.loads(os.environ.get('HOOK_JSON', '{}'))
@@ -39,8 +38,8 @@ transcript_path = hook_data.get('transcript_path', '')
 if not transcript_path or not os.path.exists(transcript_path):
     sys.exit(0)
 
-# Find the last human text message in the JSONL transcript
-# User entries can be: string content, list of text blocks, or list of tool_results (skip those)
+# ── Parse transcript: collect all human messages + assistant text ─────────────
+messages = []
 user_text = ''
 try:
     with open(transcript_path, 'r') as f:
@@ -50,26 +49,66 @@ try:
                 continue
             try:
                 entry = json.loads(line)
-                if entry.get('type') != 'user':
-                    continue
+                role = entry.get('type', '')
                 content = entry.get('message', {}).get('content', '')
-                # String content — direct human message
-                if isinstance(content, str) and content.strip():
-                    user_text = content.strip()
-                # List content — find text blocks, skip tool_results
-                elif isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and block.get('type') == 'text':
-                            candidate = block.get('text', '').strip()
-                            if candidate:
-                                user_text = candidate
-                            break
+
+                if role == 'user':
+                    text = ''
+                    if isinstance(content, str) and content.strip():
+                        text = content.strip()
+                    elif isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get('type') == 'text':
+                                t = block.get('text', '').strip()
+                                if t:
+                                    text = t
+                                    break
+                    if text:
+                        user_text = text  # keep last for interaction_log
+                        messages.append(('Josh', text))
+
+                elif role == 'assistant':
+                    text = ''
+                    if isinstance(content, str) and content.strip():
+                        text = content.strip()
+                    elif isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get('type') == 'text':
+                                t = block.get('text', '').strip()
+                                if t:
+                                    text = t
+                                    break
+                    if text:
+                        messages.append(('Claude', text))
             except Exception:
                 continue
 except Exception:
     sys.exit(0)
 
-if not user_text:
+# ── Write session to daily memory file ───────────────────────────────────────
+if messages and KEY:
+    tz_offset = datetime.timezone(datetime.timedelta(hours=2))  # SAST
+    now_sast  = datetime.datetime.now(tz_offset)
+    date_str  = now_sast.strftime('%Y-%m-%d')
+    time_str  = now_sast.strftime('%H:%M')
+    mem_file  = pathlib.Path(WS) / 'memory' / f'{date_str}.md'
+
+    # Build session block — cap each message at 1000 chars to keep file sane
+    lines = [f'\n### {time_str} SAST — Claude Code Terminal (session {session_id[:8]})\n']
+    for speaker, text in messages:
+        short = text[:1000] + ('...' if len(text) > 1000 else '')
+        lines.append(f'**{speaker}:** {short}\n')
+
+    session_block = '\n'.join(lines) + '\n'
+
+    # Only append if this session_id isn't already in the file
+    existing = mem_file.read_text() if mem_file.exists() else ''
+    if session_id[:8] not in existing:
+        with open(mem_file, 'a') as f:
+            f.write(session_block)
+
+# ── Log last user message to interaction_log (adaptive memory signal) ─────────
+if not user_text or not KEY:
     sys.exit(0)
 
 now = datetime.datetime.now(datetime.timezone.utc)

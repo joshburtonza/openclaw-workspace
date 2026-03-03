@@ -103,7 +103,7 @@ PROMPT
   # Run Claude — use stdin redirect (not arg passing — avoids quoting failures)
   unset CLAUDECODE
   local json
-  json=$(claude --print \
+  json=$(/Users/henryburton/.openclaw/bin/claude-gated --print \
     --dangerously-skip-permissions \
     --model "$MODEL" \
     < "$PROMPT_TMP" 2>/dev/null)

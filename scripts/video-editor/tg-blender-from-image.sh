@@ -112,7 +112,7 @@ Requirements (follow exactly):
 Start with a # comment block describing what you see. Return ONLY the Python script, no markdown fences.
 PROMPTEOF
 
-CLAUDE_OUTPUT=$(env -u CLAUDECODE claude --print --model claude-sonnet-4-6 --dangerously-skip-permissions < "$PROMPT_FILE" 2>> "$ERR_LOG")
+CLAUDE_OUTPUT=$(env -u CLAUDECODE /Users/henryburton/.openclaw/bin/claude-gated --print --model claude-sonnet-4-6 --dangerously-skip-permissions < "$PROMPT_FILE" 2>> "$ERR_LOG")
 
 # Strip markdown fences if present
 CLAUDE_OUTPUT=$(echo "$CLAUDE_OUTPUT" | python3 -c "

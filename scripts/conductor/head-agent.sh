@@ -221,7 +221,7 @@ Respond with valid JSON only as specified in your prompt.
 EOF
 
 unset CLAUDECODE
-RESPONSE=$(claude --print --model claude-opus-4-6 < "$TMPFILE" 2>/dev/null || echo "")
+RESPONSE=$(/Users/henryburton/.openclaw/bin/claude-gated --print --model claude-opus-4-6 < "$TMPFILE" 2>/dev/null || echo "")
 rm -f "$TMPFILE"
 
 if [[ -z "$RESPONSE" ]]; then

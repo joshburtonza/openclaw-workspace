@@ -95,7 +95,7 @@ PROMPT
 log "Running Claude on task: $TASK_TITLE"
 unset CLAUDECODE
 
-RESPONSE=$(claude --print \
+RESPONSE=$(/Users/henryburton/.openclaw/bin/claude-gated --print \
   --dangerously-skip-permissions \
   --model "$MODEL" \
   --add-dir "$WS" \

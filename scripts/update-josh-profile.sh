@@ -76,7 +76,7 @@ Rules:
 PY
 
 unset CLAUDECODE
-RESULT=$(claude --print --model claude-haiku-4-5-20251001 < "$PROMPT_TMP" 2>/dev/null)
+RESULT=$(/Users/henryburton/.openclaw/bin/claude-gated --print --model claude-haiku-4-5-20251001 < "$PROMPT_TMP" 2>/dev/null)
 rm -f "$PROMPT_TMP"
 
 # Strip code fences and any preamble before the # heading

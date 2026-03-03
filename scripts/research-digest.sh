@@ -294,7 +294,7 @@ def _run_claude_prompt(prompt_text):
         f.write(prompt_text)
         pf = f.name
     result = subprocess.run(
-        ['claude', '--print', '--model', MODEL],
+        ['/Users/henryburton/.openclaw/bin/claude-gated', '--print', '--model', MODEL],
         stdin=open(pf), capture_output=True, text=True, timeout=300, env=env,
     )
     os.unlink(pf)
@@ -467,7 +467,7 @@ If there are genuinely no worthwhile implementation gaps from this research, ret
         pf = f.name
 
     result = subprocess.run(
-        ['claude', '--print', '--model', MODEL],
+        ['/Users/henryburton/.openclaw/bin/claude-gated', '--print', '--model', MODEL],
         stdin=open(pf), capture_output=True, text=True, timeout=300, env=env,
     )
     os.unlink(pf)
