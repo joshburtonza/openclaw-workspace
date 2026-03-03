@@ -174,6 +174,66 @@ PY
     log "WARNING: Unknown repo key '$REPO_KEY' — falling back to workspace"
   fi
 
+  # ── Billing gate — skip tasks for paused/stopped clients ──────────────────
+  if [[ -n "$REPO_KEY" ]]; then
+    CLIENT_STATUS=$(python3 - <<PY
+import os, json, urllib.request
+
+KEY = os.environ['SUPABASE_KEY']
+URL = os.environ['SUPABASE_URL']
+
+# Map repo key to clients.slug
+slug_map = {
+    'qms-guard':        'ascend_lc',
+    'ascend-lc':        'ascend_lc',
+    'chrome-auto-care': 'race_technik',
+    'race-technik':     'race_technik',
+    'favorite-flow':    'favorite_logistics',
+    'favlog':           'favorite_logistics',
+    'metal-solutions':  'metal_solutions',
+    'rt-metal':         'metal_solutions',
+}
+repo_key = """${REPO_KEY}"""
+slug = slug_map.get(repo_key)
+if not slug:
+    print('active')  # unknown client — let it through
+else:
+    req = urllib.request.Request(
+        f"{URL}/rest/v1/clients?slug=eq.{slug}&select=status",
+        headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}'},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            rows = json.loads(r.read())
+        if rows:
+            print(rows[0].get('status', 'active'))
+        else:
+            print('active')
+    except Exception:
+        print('active')  # fail open — don't block on network error
+PY
+    )
+    if [[ "$CLIENT_STATUS" == "paused" || "$CLIENT_STATUS" == "stopped" ]]; then
+      log "BILLING GATE: Client '$REPO_KEY' is $CLIENT_STATUS — skipping task: $TASK_TITLE"
+      # Reset task back to todo so it waits until client is resumed
+      python3 - <<PY
+import os, json, urllib.request
+KEY = os.environ['SUPABASE_KEY']
+URL = os.environ['SUPABASE_URL']
+data = json.dumps({"status": "todo"}).encode()
+req = urllib.request.Request(
+    f"{URL}/rest/v1/tasks?id=eq.${TASK_ID}",
+    data=data,
+    headers={"apikey": KEY, "Authorization": f"Bearer {KEY}",
+             "Content-Type": "application/json", "Prefer": "return=minimal"},
+    method="PATCH",
+)
+urllib.request.urlopen(req, timeout=8)
+PY
+      continue
+    fi
+  fi
+
   log "Task $((TASKS_DONE + 1))/$MAX_TASKS: $TASK_TITLE (id: $TASK_ID, repo: ${REPO_KEY:-internal})"
 
   # ── Mark in_progress ──────────────────────────────────────────────────────

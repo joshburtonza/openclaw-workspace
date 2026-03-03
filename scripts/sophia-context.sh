@@ -24,6 +24,29 @@ fi
 
 SUPABASE_URL="${AOS_SUPABASE_URL:-https://afmpbtynucpbglwtbfuz.supabase.co}"
 KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
+
+# ── Billing gate — block Sophia from engaging with paused/stopped clients ────
+BILLING_STATUS=$(python3 - <<PY
+import urllib.request, json, os
+KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+URL = os.environ.get('AOS_SUPABASE_URL', 'https://afmpbtynucpbglwtbfuz.supabase.co')
+SLUG = """${CLIENT_SLUG}"""
+try:
+    req = urllib.request.Request(
+        f"{URL}/rest/v1/client_os_registry?slug=eq.{SLUG}&select=status",
+        headers={'apikey': KEY, 'Authorization': f'Bearer {KEY}'},
+    )
+    with urllib.request.urlopen(req, timeout=8) as r:
+        rows = json.loads(r.read())
+    print(rows[0].get('status', 'active') if rows else 'active')
+except Exception:
+    print('active')  # fail open on network error
+PY
+)
+if [[ "$BILLING_STATUS" == "paused" || "$BILLING_STATUS" == "stopped" ]]; then
+  echo "BILLING_GATE: Client '$CLIENT_SLUG' is $BILLING_STATUS — Sophia skipping" >&2
+  exit 0
+fi
 MEETING_JOURNAL="$WS/memory/meeting-journal.md"
 GITHUB_SCRIPT="$WS/sophia-github-context.sh"
 
