@@ -50,7 +50,7 @@ REPO_LOG=""
 for ENTRY in "qms-guard:Ascend LC" "favorite-flow-9637aff2:Favorite Logistics" "chrome-auto-care:Race Technik"; do
   DIR="${ENTRY%%:*}"
   NAME="${ENTRY#*:}"
-  COMMITS=$(git -C "$WORKSPACE/clients/$DIR" log --oneline --since="24 hours ago" 2>/dev/null | head -5)
+  COMMITS=$(git -C "$WORKSPACE/clients/$DIR" log --oneline --max-count=5 --since="24 hours ago" 2>/dev/null || true)
   if [[ -n "$COMMITS" ]]; then
     REPO_LOG="${REPO_LOG}**${NAME}:**
 $COMMITS
