@@ -33,6 +33,99 @@ send_telegram() {
     > /dev/null
 }
 
+# ── One-shot agents: never restart — launchd fires them on schedule only ─────
+# These run once per day/week/night. If they fail, a task is created but they
+# should NOT be restarted by error-monitor (that would cause spin loops).
+ONE_SHOT_AGENTS=(
+  "morning-video-scripts"
+  "morning-brief"
+  "salah-morning-brief"
+  "salah-weekly-brief"
+  "nightly-flush"
+  "nightly-state"
+  "nightly-github-sync"
+  "weekly-client-reports"
+  "weekly-memory-digest"
+  "weekly-memory"
+  "finance-report"
+  "meeting-digest"
+  "git-backup"
+  "discord-morning-nudge"
+  "tiktok-live-reminder"
+  "aos-value-report"
+)
+
+# ── Restart circuit breaker ───────────────────────────────────────────────────
+# Tracks restarts per agent in a JSON state file.
+# If an agent has been restarted >= 2 times in the last 30 min: silence it.
+CIRCUIT_FILE="$WORKSPACE/tmp/error-monitor-circuit.json"
+mkdir -p "$WORKSPACE/tmp"
+
+circuit_tripped() {
+  # Returns 0 (true) if circuit is tripped for this agent, 1 (false) if ok to restart
+  local agent="$1"
+  python3 - <<PY
+import json, time, os
+f = "$CIRCUIT_FILE"
+agent = "$agent"
+now = time.time()
+window = 1800  # 30 minutes
+
+try:
+    with open(f) as fp:
+        data = json.load(fp)
+except Exception:
+    data = {}
+
+rec = data.get(agent, {"count": 0, "window_start": now})
+# Reset window if it's expired
+if now - rec.get("window_start", now) > window:
+    rec = {"count": 0, "window_start": now}
+    data[agent] = rec
+
+if rec.get("count", 0) >= 2:
+    print("tripped")
+else:
+    print("ok")
+PY
+}
+
+circuit_record_restart() {
+  local agent="$1"
+  python3 - <<PY
+import json, time, os
+f = "$CIRCUIT_FILE"
+agent = "$agent"
+now = time.time()
+window = 1800
+
+try:
+    with open(f) as fp:
+        data = json.load(fp)
+except Exception:
+    data = {}
+
+rec = data.get(agent, {"count": 0, "window_start": now})
+if now - rec.get("window_start", now) > window:
+    rec = {"count": 0, "window_start": now}
+
+rec["count"] = rec.get("count", 0) + 1
+data[agent] = rec
+
+os.makedirs(os.path.dirname(f), exist_ok=True)
+with open(f, "w") as fp:
+    json.dump(data, fp)
+PY
+}
+
+is_one_shot() {
+  local agent="$1"
+  for a in "${ONE_SHOT_AGENTS[@]}"; do
+    [[ "$a" == "$agent" ]] && return 0
+  done
+  return 1
+}
+
 # ── 1. Check launchctl exit codes — auto-restart failing agents ───────────────
 
 RESTART_ALERTS=""
@@ -52,7 +145,23 @@ while IFS=$'\t' read -r PID EXIT_CODE LABEL; do
   [[ "$LABEL" == "com.amalfiai.telegram-poller" ]] && continue
 
   AGENT="${LABEL#com.amalfiai.}"
+
+  # Skip one-shot agents — never restart them (they run on schedule only)
+  if is_one_shot "$AGENT"; then
+    echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") $AGENT is a one-shot agent — skipping restart (task will be created)"
+    FAILED_AGENTS="${FAILED_AGENTS}${AGENT}|||one-shot agent failed (exit ${EXIT_CODE}) — not restarted, scheduled run only"$'\n'
+    continue
+  fi
+
+  # Circuit breaker — if already restarted 2x in last 30 min, stop trying
+  CIRCUIT_STATUS=$(circuit_tripped "$AGENT")
+  if [[ "$CIRCUIT_STATUS" == "tripped" ]]; then
+    echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") $AGENT circuit tripped — silenced for remainder of window"
+    continue
+  fi
+
   echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") Agent $AGENT exited $EXIT_CODE — attempting restart"
+  circuit_record_restart "$AGENT"
 
   # Restart
   launchctl stop "$LABEL" 2>/dev/null || true

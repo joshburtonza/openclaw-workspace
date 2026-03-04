@@ -52,6 +52,17 @@ main() {
   youtube_day=false
   [[ "$day" == "Monday" || "$day" == "Thursday" ]] && youtube_day=true
 
+  # Daily marker — one-shot agent, runs once per day. Mark attempted immediately
+  # so any error-monitor restart or accidental re-run is a no-op.
+  local MARKER_DIR="$ROOT/tmp/video-bot"
+  local MARKER_FILE="$MARKER_DIR/done-$(date +%Y-%m-%d).txt"
+  mkdir -p "$MARKER_DIR"
+  if [[ -f "$MARKER_FILE" ]]; then
+    echo "Video Bot: already ran today (marker exists) — skipping"
+    exit 0
+  fi
+  echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") attempt" > "$MARKER_FILE"
+
   # Idempotency: if scripts already exist today, do nothing.
   local existing
   existing=$(supa_get_today_count || echo "0")
@@ -110,8 +121,8 @@ PROMPT
   rm -f "$PROMPT_TMP"
 
   if [[ -z "$json" ]]; then
-    echo "Video Bot: Claude returned empty response" >&2
-    exit 1
+    echo "Video Bot: Claude returned empty response — token may be expired, skipping today" >&2
+    exit 0  # Exit 0: marker file already written, won't retry today. No error-monitor spin loop.
   fi
 
   # Strip markdown fences if Claude added them anyway

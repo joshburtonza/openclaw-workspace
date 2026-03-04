@@ -17,7 +17,7 @@ source "$WS/scripts/lib/agent-registry.sh"
 
 LOG="$WS/out/head-agent.log"
 mkdir -p "$WS/out"
-log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
+log() { echo "[$(date '+%H:%M:%S')] $*"; }  # stdout captured by launchd → $LOG via StandardOutPath
 
 AGENT_ID="head-agent"
 START_MS=$(python3 -c "import time; print(int(time.time()*1000))")
@@ -202,6 +202,36 @@ fi
 
 log "System state gathered ($(echo "$SYSTEM_STATE" | wc -c) bytes)"
 
+# ── Work gate — only call Claude Opus if there's actual work to orchestrate ───
+# Calling Opus every 5 min when there's nothing to act on wastes tokens.
+# Gate conditions: Claude tasks queued, erroring agents, high priority items,
+# pending research, or it's the daily 07:20 SAST report window.
+HAS_WORK=$(echo "$SYSTEM_STATE" | python3 -c "
+import sys, json
+s = json.load(sys.stdin)
+tasks   = s.get('tasks', {})
+health  = s.get('agent_health', {})
+is_report = s.get('is_daily_report_time', False)
+
+has_work = (
+    tasks.get('claude_todo', 0) > 0          or
+    tasks.get('high_priority', 0) > 0        or
+    health.get('by_status', {}).get('error', 0) > 0  or
+    len(health.get('stale_agents', [])) > 3  or
+    s.get('research_pending', 0) > 0         or
+    is_report
+)
+print('1' if has_work else '0')
+" 2>/dev/null || echo "1")
+
+if [[ "$HAS_WORK" == "0" ]]; then
+    log "Nothing to orchestrate — skipping Claude call (tasks idle, agents healthy)"
+    agent_checkout "$AGENT_ID" "idle" "Nothing to orchestrate"
+    exit 0
+fi
+
+log "Work detected — calling Claude Opus"
+
 # ── Send to Claude Opus ───────────────────────────────────────────────────────
 HEAD_PROMPT=$(cat "$PROMPT_FILE")
 
@@ -225,9 +255,9 @@ RESPONSE=$(/Users/henryburton/.openclaw/bin/claude-gated --print --model claude-
 rm -f "$TMPFILE"
 
 if [[ -z "$RESPONSE" ]]; then
-    log "Claude returned empty response"
-    agent_checkout "$AGENT_ID" "error" "Claude returned empty response"
-    exit 1
+    log "Claude returned empty response — token may be expired. Will retry next cycle."
+    agent_checkout "$AGENT_ID" "idle" "Claude unavailable — token may be expired"
+    exit 0  # Exit 0: not a crash, avoids error-monitor restart loop
 fi
 
 log "Claude response received"
