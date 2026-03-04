@@ -143,6 +143,7 @@ while IFS=$'\t' read -r PID EXIT_CODE LABEL; do
   # Skip KeepAlive persistent bots — launchd handles their restart automatically
   [[ "$LABEL" == "com.amalfiai.discord-community-bot" ]] && continue
   [[ "$LABEL" == "com.amalfiai.telegram-poller" ]] && continue
+  [[ "$LABEL" == "com.amalfiai.pinchtab" ]] && continue
 
   AGENT="${LABEL#com.amalfiai.}"
 

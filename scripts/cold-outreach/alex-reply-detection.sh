@@ -195,7 +195,7 @@ def classify_llm(text):
     env = {k: v for k, v in os.environ.items() if k not in ('CLAUDECODE', 'CLAUDE_CODE')}
     try:
         r = subprocess.run(
-            ['claude', '--print', '--model', 'claude-haiku-4-5-20251001'],
+            ['claude-gated', '--print', '--model', 'claude-haiku-4-5-20251001'],
             input=prompt, capture_output=True, text=True, timeout=30, env=env,
         )
         result = json.loads(r.stdout.strip())

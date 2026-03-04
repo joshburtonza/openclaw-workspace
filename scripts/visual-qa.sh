@@ -23,8 +23,7 @@ WS="$(cd "$(dirname "$0")/.." && pwd)"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_JOSH_CHAT_ID:-1140320036}"
 ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-}"
-SCREENSHOT_SCRIPT="$WS/scripts/visual-qa/screenshot.mjs"
-NODE_MODULES="$WS/scripts/visual-qa/node_modules"
+SCREENSHOT_SCRIPT="$WS/scripts/visual-qa/screenshot.sh"
 
 OUT_DIR="/tmp/visual-qa-${TASK_ID}"
 LOG_TAG="[visual-qa]"
@@ -44,6 +43,12 @@ fi
 
 if [[ ! -f "$SCREENSHOT_SCRIPT" ]]; then
   log "Screenshot script not found at $SCREENSHOT_SCRIPT — skipping"
+  exit 0
+fi
+
+# Pinchtab must be running for screenshot.sh to work
+if ! curl -sf http://localhost:9867/health > /dev/null 2>&1; then
+  log "Pinchtab not running — skipping visual QA"
   exit 0
 fi
 
@@ -112,7 +117,7 @@ esac
 
 # ── Take screenshots ───────────────────────────────────────────────────────────
 log "Taking screenshots (login: ${TEST_EMAIL:-none})..."
-SCREENSHOT_OUTPUT=$(NODE_PATH="$NODE_MODULES" node "$SCREENSHOT_SCRIPT" "$PORT" "$REPO_KEY" "$OUT_DIR" "$TEST_EMAIL" "$TEST_PASSWORD" 2>&1)
+SCREENSHOT_OUTPUT=$(bash "$SCREENSHOT_SCRIPT" "$PORT" "$REPO_KEY" "$OUT_DIR" "$TEST_EMAIL" "$TEST_PASSWORD" 2>&1)
 log "$SCREENSHOT_OUTPUT"
 
 SCREENSHOT_FILES=()
@@ -173,9 +178,10 @@ for f in files[:4]:
     try:
         with open(f, 'rb') as fh:
             img_b64 = base64.standard_b64encode(fh.read()).decode()
+        mime = "image/jpeg" if f.endswith(".jpg") or f.endswith(".jpeg") else "image/png"
         content.append({
             "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{img_b64}", "detail": "low"},
+            "image_url": {"url": f"data:{mime};base64,{img_b64}", "detail": "low"},
         })
     except Exception as e:
         print(f"Could not load {f}: {e}", file=sys.stderr)
@@ -248,13 +254,14 @@ b = b'AmalfiQABoundary987'
 def field(name, value):
     return b'--' + b + b'\r\nContent-Disposition: form-data; name="' + name.encode() + b'"\r\n\r\n' + value.encode() + b'\r\n'
 def file_field(name, filename, data):
-    return b'--' + b + b'\r\nContent-Disposition: form-data; name="' + name.encode() + b'"; filename="' + filename.encode() + b'"\r\nContent-Type: image/png\r\n\r\n' + data + b'\r\n'
+    ct = b'image/jpeg' if filename.endswith('.jpg') else b'image/png'
+    return b'--' + b + b'\r\nContent-Disposition: form-data; name="' + name.encode() + b'"; filename="' + filename.encode() + b'"\r\nContent-Type: ' + ct + b'\r\n\r\n' + data + b'\r\n'
 
 body = (
     field('chat_id', CHAT) +
     field('parse_mode', 'HTML') +
     field('caption', CAP) +
-    file_field('photo', f'qa_{ROUTE}.png', img_data) +
+    file_field('photo', f'qa_{ROUTE}.jpg', img_data) +
     b'--' + b + b'--\r\n'
 )
 

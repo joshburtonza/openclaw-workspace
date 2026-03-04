@@ -539,7 +539,7 @@ Rules:
         env = _os.environ.copy()
         env['UNSET_CLAUDECODE'] = '1'
         result = _sp.run(
-            ['bash', '-c', f'unset CLAUDECODE && claude --print --model claude-haiku-4-5-20251001 < {tmp.name}'],
+            ['bash', '-c', f'unset CLAUDECODE && claude-gated --print --model claude-haiku-4-5-20251001 < {tmp.name}'],
             capture_output=True, text=True, timeout=30, env=env
         )
         raw_json = result.stdout.strip()

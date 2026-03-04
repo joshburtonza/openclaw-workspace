@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.amalfiai.pinchtab</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/opt/homebrew/bin/pinchtab</string>
+    </array>
+
+    <!-- Persistent browser automation server — KeepAlive restarts on exit -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/pinchtab.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/pinchtab.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Standard</string>
+
+    <key>LowPriorityIO</key>
+    <false/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+      <key>HOME</key>
+      <string>/Users/henryburton</string>
+      <key>BRIDGE_PORT</key>
+      <string>9867</string>
+      <key>BRIDGE_HEADLESS</key>
+      <string>true</string>
+      <key>BRIDGE_BIND</key>
+      <string>127.0.0.1</string>
+      <key>BRIDGE_PROFILE</key>
+      <string>/Users/henryburton/.pinchtab/automation-profile</string>
+    </dict>
+  </dict>
+</plist>
