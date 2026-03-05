@@ -296,3 +296,58 @@ Sophia's 20-min cron now:
 
 ### Context
 - Josh shared Morningside AI (his own brand) video transcript about AIOS (AI Operating System methodology): layering Claude Code modules (Context OS, Data OS, Meeting Intelligence, Daily Brief OS, Productivity OS, Capture OS) to automate 60–70% of business tasks. He's actively building this across content, Morningside AI, education, ventures. Enthusiastic about Claude Code over OpenClaw/ClaudeBot for long-term depth.
+
+---
+
+## Update: 2026-03-05 (Desktop Session)
+
+### Josh's Personal Debt (CONFIDENTIAL — owner-only)
+- **Josh's 4 debts (R120k total, ~22% interest):**
+  - Standard Bank VISA: R31,902 remaining, R900/pm
+  - Discovery Credit Card: R29,398 remaining, R1,500/pm
+  - FNB Credit Card: R28,500 remaining, R1,500/pm
+  - Takealot Mobicred: R25,850 remaining, R2,400/pm
+  - SARS: R4,300 remaining, R700/pm
+  - Total minimums: R7,000/pm
+- **Cheyenne's debt: R150k** (tracker shows R114k across 3 accounts — bank docs coming)
+- **Strategy:** Pay minimums on Josh's, dump surplus on Cheyenne's first. Pivot after hers cleared.
+- **PRIVATE:** Josh does NOT want Cheyenne to know about his R120k debt.
+- **Wesbank R5,940/pm = motorcycle (asset, not counted as debt)**
+- **AFS09/Jiburton = Ambition Insurance, R4,555/pm**
+- Discovery Bank personal loan (R270k @ 21.97% / 72mo) was rejected — costs R184k extra in interest.
+
+### Finance Dashboard Access Control
+- Finances.tsx updated to hide personal transactions from staff (Salah)
+- `account_type: 'personal'` filtered out for non-owner profiles
+- Revenue vs Costs chart, Net Position, Sajonix Balance, Log Transaction FAB all wrapped in `isOwner`
+- Committed and pushed (commit 05e2d1a)
+
+### Agent Status (05 Mar)
+- morning-brief was unloaded — reloaded, fires 07:30 daily
+- head-agent: token expiry issue (returning empty responses)
+- email-scheduler: stuck in OOO mode
+- 15 API agents not loaded (sophia, research, memory, etc.)
+- 18 intentionally disabled (old supervisors)
+
+### Race Technik Staff Portal Feedback (Farhaan)
+1. Licence disc OCR → auto-fill vehicle details
+2. Searchable service dropdown + correct descriptions
+3. Bookings sorted newest first
+4. Multi-image upload on process stages
+5. Edit/undo completed process stages
+
+### How Josh Works (Behavioural Patterns)
+- Uses Desktop App + Telegram exclusively (no CLI)
+- Sends bank transaction screenshots for manual data entry
+- Thinks in terms of business vs personal separation (Salah can't see personal)
+- Prefers quick math breakdowns for financial decisions
+- Categorises debts separately from asset financing (motorcycle = asset)
+- Works in bursts — multiple topics per session (finance, agents, client feedback, debt strategy)
+- Swears freely, expects matched energy, no corporate speak
+- South African English, Johannesburg casual
+
+### Session Continuity Rules (Josh's Request)
+- ALWAYS bank memories to daily file + MEMORY.md before session ends or compaction
+- System should learn Josh's patterns, preferences, business context from interactions
+- Only channels: Desktop App + Telegram
+
