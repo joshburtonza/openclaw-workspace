@@ -1,4 +1,4 @@
-# CURRENT STATE — 2026-03-04 01:00 UTC
+# CURRENT STATE — 2026-03-05 01:00 UTC
 > Auto-generated every night. Read this file for live operational context.
 
 ## Agent Health
@@ -7,39 +7,32 @@
   ✅ tiktok-live-reminder (exit 0)
   ✅ telegram-watchdog (exit 0)
   ✅ alex-outreach (exit 0)
-  ✅ nightly-flush (exit 0)
   ✅ discord-community-bot (exit 0)
   ✅ salah-weekly-brief (exit 0)
   ✅ pending-nudge (exit 0)
   ✅ socks-tunnel (exit 0)
-  ✅ heartbeat (exit 0)
-  ✅ comms-supervisor (exit 0)
   ✅ apollo-sourcer (exit 0)
   ✅ email-opens-poller (exit 0)
   ✅ error-monitor (exit 0)
   ✅ rt-token-sync (exit 0)
   ✅ whatsapp-inbound-notifier (exit 0)
-  ✅ alex-reply-detection (exit 0)
   ✅ agent-status-updater (exit 0)
-  ✅ morning-video-scripts (exit 0)
-  ⚠️ head-agent (exit 1)
+  ✅ head-agent (exit 0)
   ✅ finance-report (exit 0)
   ✅ nightly-state (exit 0)
   ✅ whatsapp-capture (exit 0)
   ✅ claude-task-worker (exit 0)
-  ✅ silence-detection (exit 0)
   ✅ reminder-poller (exit 0)
   ✅ statement-reminder (exit 0)
   ✅ aos-value-report (exit 0)
   ✅ activity-tracker (exit 0)
   ✅ salah-morning-brief (exit 0)
-  ✅ nightly-github-sync (exit 0)
   ✅ enrich-leads (exit 0)
   ✅ weekly-client-reports (exit 0)
+  ✅ pinchtab (exit 0)
   ✅ data-os-sync (exit 0)
   ✅ email-response-scheduler (exit 0)
   ✅ telegram-poller (exit 0)
-  ✅ claude-startup (exit 0)
   ✅ discord-morning-nudge (exit 0)
   ✅ fnb-email-poller (exit 0)
   ✅ retainer-tracker (exit 0)
@@ -73,11 +66,11 @@
   favorite-flow: 6 behind
 
 ## Recent Activity
-  2026-03-04 00:38 — dirty: workspace | behind: qms-guard, favorite-flow
-  2026-03-04 00:43 — dirty: workspace | behind: qms-guard, favorite-flow
-  2026-03-04 00:48 — dirty: workspace | behind: qms-guard, favorite-flow
-  2026-03-04 00:53 — dirty: workspace | behind: qms-guard, favorite-flow
-  2026-03-04 00:59 — dirty: workspace | behind: qms-guard, favorite-flow
+  2026-03-05 00:36 — dirty: workspace | behind: qms-guard, favorite-flow
+  2026-03-05 00:41 — dirty: workspace | behind: qms-guard, favorite-flow
+  2026-03-05 00:46 — dirty: workspace | behind: qms-guard, favorite-flow
+  2026-03-05 00:51 — dirty: workspace | behind: qms-guard, favorite-flow
+  2026-03-05 00:56 — dirty: workspace | behind: qms-guard, favorite-flow
 
 ## Scope Creep Alerts
   (none)
