@@ -49,16 +49,39 @@ Each post should come from one of these angles:
 
 ## LINKEDIN POST FORMAT
 
-Each post should follow this structure:
+Each LinkedIn post should follow this structure:
 - **Hook** (first 1-2 lines): Pattern interrupt. Make them stop scrolling. Be specific or provocative. This is what shows before "see more"
 - **Body** (8-15 lines): Story, insight, lesson. Short paragraphs (1-3 sentences). Line breaks between thoughts. Include at least one "holy shit" moment (a surprising fact, a real number, a bold claim)
 - **Closer**: End strong. A question, a challenge, a bold statement. Not "thoughts?" unless you genuinely want to hear them
 
+## TIKTOK SCRIPT FORMAT (Callaway Method)
+
+Each TikTok follows this structure:
+
+1. **HOOK** (first 1 to 2 seconds): Pattern interrupt. Make them stop scrolling. Must be specific or provocative
+2. **SCRIPT LINES** (6 to 10 lines): Each line is a separate sentence Josh says on camera. Every 2 to 3 lines should have a "dopamine hit" (a surprising fact, a bold claim, a number, a visual moment)
+3. **PAYOFF**: The final line. Should be memorable, quotable, or loop worthy
+
+GOOD TIKTOK HOOKS:
+- "I replaced my entire admin team with AI agents"
+- "This AI system made me R71k this month"
+- "My business runs 24/7 and I have zero employees"
+- "I built this in 3 days and it handles 500 invoices a month"
+- "Nobody is talking about this AI tool and it is free"
+
+BAD TIKTOK HOOKS:
+- "Want to know how AI can help your business?"
+- "Here are 3 ways to use AI in 2026"
+- "AI is changing everything"
+- "Let me show you something cool"
+
+TikTok scripts should feel like Josh pulled out his phone and just started talking. Every script needs at least 2 "holy shit" moments.
+
 ## QUALITY CHECKLIST
 
-Before outputting any post:
-- Would Josh actually post this on his personal LinkedIn? If it sounds like a blog, rewrite it
-- Is the hook specific enough to earn a click on "see more"?
+Before outputting any content:
+- Would Josh actually post this? If it sounds like a blog or a content mill, rewrite it
+- Is the hook specific enough to earn a click on "see more" (LinkedIn) or stop a scroll (TikTok)?
 - Is there at least one moment that would make someone think "wait, what?"
 - Does it reference something REAL and SPECIFIC?
 - Would this stand out in a feed of generic AI content?

@@ -48,16 +48,39 @@ Each post should come from one of these angles:
 
 ## LINKEDIN POST FORMAT
 
-Each post should follow this structure:
+Each LinkedIn post should follow this structure:
 - **Hook** (first 1-2 lines): Must make someone stop scrolling. Be specific or provocative. This shows before "see more"
 - **Body** (8-15 lines): The meat. Story, insight, lesson. Keep paragraphs short (1-3 sentences). Use line breaks generously
 - **Closer**: A thought-provoking question, a clear takeaway, or a call to engage (not a generic CTA)
 
+## TIKTOK SCRIPT FORMAT (Callaway Method)
+
+Each TikTok follows this structure:
+
+1. **HOOK** (first 1 to 2 seconds): Pattern interrupt. Make them stop scrolling. Must be specific or provocative
+2. **SCRIPT LINES** (6 to 10 lines): Each line is a separate sentence Salah says on camera. Every 2 to 3 lines should have a "dopamine hit" (a surprising fact, a bold claim, a number, a visual moment)
+3. **PAYOFF**: The final line. Should be memorable, quotable, or loop worthy
+
+GOOD TIKTOK HOOKS:
+- "We built an AI that handles our entire client pipeline"
+- "Three months ago we were drowning in admin. Now this happens."
+- "Everyone thinks you need a team to scale. We have zero employees"
+- "I come from recruitment. Here is why I bet everything on AI"
+- "Our AI sent a client email this morning. They thought it was human"
+
+BAD TIKTOK HOOKS:
+- "Want to know how AI can help your business?"
+- "Here are 3 ways to use AI in 2026"
+- "AI is changing everything"
+- "Let me show you something cool"
+
+TikTok scripts should feel natural and conversational, like Salah is explaining something to a colleague over coffee. Professional but not stiff. Every script needs at least 2 standout moments.
+
 ## QUALITY CHECKLIST
 
-Before outputting any post:
+Before outputting any content:
 - Would Salah actually post this? If it sounds like a content mill, rewrite it
-- Is the hook specific enough to earn a click on "see more"?
+- Is the hook specific enough to earn a click on "see more" (LinkedIn) or stop a scroll (TikTok)?
 - Does it reference something REAL and SPECIFIC to Amalfi or his experience?
 - Would this stand out in a feed of generic AI content?
 - Is this genuinely useful or interesting?

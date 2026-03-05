@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Content Ideas Bot: generate LinkedIn post drafts for Josh + Salah
+# Content Ideas Bot: generate LinkedIn posts + TikTok scripts for Josh + Salah
 # Fires daily at 7:15am SAST (after Video Bot at 7am)
 # Inserts into Supabase tasks, visible in Mission Control
 
@@ -63,11 +63,11 @@ $YESTERDAY_LOG
 
 ## TODAY'S TASK
 
-Generate 3 LinkedIn post drafts for $person.
+Generate 3 LinkedIn post drafts AND 3 TikTok script drafts for $person.
 
-Each post must be from a DIFFERENT category. Make them varied in tone and topic.
+Each piece must be from a DIFFERENT category. Make them varied in tone and topic.
 
-Use the recent context above to make at least 1 post about something SPECIFIC that happened this week (a feature shipped, a client interaction, a system update, etc). The other posts can be more evergreen but still grounded in real experience.
+Use the recent context above to make at least 1 LinkedIn post AND 1 TikTok about something SPECIFIC that happened this week (a feature shipped, a client interaction, a system update, etc). The others can be more evergreen but still grounded in real experience.
 
 Return JSON with this exact shape:
 {
@@ -77,6 +77,14 @@ Return JSON with this exact shape:
       "hook": "string (the first 1-2 lines that show before see more)",
       "body": "string (the full post body including hook, with line breaks as newlines)",
       "closer": "string (the closing line or question)"
+    }
+  ],
+  "tiktoks": [
+    {
+      "category": "string (which category from the list above)",
+      "hook": "string (the first 1-2 seconds, pattern interrupt)",
+      "script": "string (6-10 lines, each a sentence to say on camera, separated by newlines)",
+      "payoff": "string (the final memorable line)"
     }
   ]
 }
@@ -126,8 +134,15 @@ except Exception as e:
     raise SystemExit(f"Failed to parse JSON for {person}: {e}\nRaw:\n{data[:800]}")
 
 url = SUPABASE_URL + '/rest/v1/tasks'
+headers = {
+    'apikey': KEY,
+    'Authorization': f'Bearer {KEY}',
+    'Content-Type': 'application/json',
+    'Prefer': 'return=minimal',
+}
 inserted = 0
 
+# Insert LinkedIn posts
 for p in obj.get('posts', [])[:3]:
     category = p.get('category', '').strip()
     hook = p.get('hook', '').strip()
@@ -146,17 +161,36 @@ for p in obj.get('posts', [])[:3]:
         'created_by': 'Content Bot',
         'tags': ['linkedin', 'content', tag],
     }
-    r = requests.post(url, headers={
-        'apikey': KEY,
-        'Authorization': f'Bearer {KEY}',
-        'Content-Type': 'application/json',
-        'Prefer': 'return=minimal',
-    }, json=payload)
+    r = requests.post(url, headers=headers, json=payload)
     r.raise_for_status()
     inserted += 1
     print(f"  Inserted for {person}: {title[:60]}")
 
-print(f"Content Ideas: {inserted} posts inserted for {person}")
+# Insert TikTok scripts
+for t in obj.get('tiktoks', [])[:3]:
+    category = t.get('category', '').strip()
+    hook = t.get('hook', '').strip()
+    script = t.get('script', '').strip()
+    payoff = t.get('payoff', '').strip()
+
+    title = f'[TikTok] {hook[:80]}'
+    desc = f'CATEGORY: {category}\n\nHOOK:\n{hook}\n\nSCRIPT:\n{script}\n\nPAYOFF:\n{payoff}'
+
+    payload = {
+        'title': title,
+        'description': desc,
+        'priority': 'normal',
+        'status': 'todo',
+        'assigned_to': assigned,
+        'created_by': 'Content Bot',
+        'tags': ['tiktok', 'content', tag],
+    }
+    r = requests.post(url, headers=headers, json=payload)
+    r.raise_for_status()
+    inserted += 1
+    print(f"  Inserted for {person}: {title[:60]}")
+
+print(f"Content Ideas: {inserted} items inserted for {person} (LinkedIn + TikTok)")
 PY
 }
 
