@@ -1064,6 +1064,99 @@ Key reminders: engagement friction is the primary demo risk. Early-stage honesty
   echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") Voice AI demo prep block sent"
 fi
 
+# ── Auto-queue tasks for Claude Task Worker ─────────────────────────────────
+# Generates 2-3 actionable follow-up tasks from today's brief context
+# These get picked up by claude-task-worker.sh within 5 minutes
+
+AUTO_TASK_PROMPT_TMP=$(mktemp /tmp/auto-tasks-XXXXXX)
+cat > "$AUTO_TASK_PROMPT_TMP" << AUTOTASKPROMPT
+You are the Amalfi AI task planner. Based on today's morning brief data, generate 2-3 autonomous tasks that Claude can complete without Josh's direct involvement.
+
+TODAY'S CONTEXT:
+- Day: ${DOW}, ${DATE_STR}
+- Dashboard: ${DASHBOARD_SNAPSHOT}
+- Pending approvals: ${PENDING_TEXT}
+- Dev activity: ${REPO_CHANGES}
+- SWOT: ${SWOT_TEXT}
+- AI News: ${AI_NEWS_DIGEST}
+
+RULES:
+- Each task must be something Claude can DO with access to the workspace files, memory, and Supabase
+- Good tasks: research a topic and write a summary, draft a process doc, analyse data and produce a report, update CURRENT_STATE.md, review and summarise recent client interactions, prepare meeting notes
+- Bad tasks: send emails (needs approval), make payments, deploy code, anything requiring Josh's decision
+- Keep tasks specific and completable in under 5 minutes of Claude thinking time
+- Do NOT generate tasks that are vague like "review systems" — be specific about what to review and what output to produce
+
+Return STRICT JSON only:
+{
+  "tasks": [
+    {"title": "string (concise task name)", "prompt": "string (detailed instructions for Claude)"}
+  ]
+}
+AUTOTASKPROMPT
+
+AUTO_TASKS_JSON=$(bash "$WORKSPACE/scripts/lib/openai-complete.sh" --model gpt-4o-mini < "$AUTO_TASK_PROMPT_TMP" 2>/dev/null || echo "")
+rm -f "$AUTO_TASK_PROMPT_TMP"
+
+if [[ -n "$AUTO_TASKS_JSON" ]]; then
+  # Strip markdown fences
+  AUTO_TASKS_JSON=$(echo "$AUTO_TASKS_JSON" | python3 -c '
+import sys, re
+t = sys.stdin.read().strip()
+t = re.sub(r"^[`]{3}json\s*", "", t)
+t = re.sub(r"^[`]{3}\s*", "", t)
+t = re.sub(r"[`]{3}\s*$", "", t)
+print(t.strip())
+')
+
+  export AUTO_TASKS_JSON
+  python3 - <<'AUTOTASKPY'
+import json, os, requests
+
+SUPABASE_URL = os.environ['SUPABASE_URL']
+KEY = os.environ['SUPABASE_KEY']
+data = os.environ.get('AUTO_TASKS_JSON', '')
+
+try:
+    obj = json.loads(data)
+except Exception as e:
+    print(f"  Auto-tasks: failed to parse JSON: {e}")
+    raise SystemExit(0)
+
+url = SUPABASE_URL + '/rest/v1/task_queue'
+queued = 0
+
+for t in obj.get('tasks', [])[:3]:
+    title = t.get('title', '').strip()
+    prompt = t.get('prompt', '').strip()
+    if not title or not prompt:
+        continue
+
+    payload = {
+        'agent': 'Claude Code',
+        'task_type': 'task_execution',
+        'status': 'queued',
+        'payload': json.dumps({'title': title, 'prompt': prompt}),
+    }
+    try:
+        r = requests.post(url, headers={
+            'apikey': KEY,
+            'Authorization': f'Bearer {KEY}',
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal',
+        }, json=payload)
+        r.raise_for_status()
+        queued += 1
+        print(f"  Auto-queued: {title}")
+    except Exception as e:
+        print(f"  Auto-queue failed for '{title}': {e}")
+
+print(f"  Auto-tasks: {queued} tasks queued for Claude worker")
+AUTOTASKPY
+else
+  echo "  Auto-tasks: generation failed or empty, skipping"
+fi
+
 task_complete "$TASK_ID" "Morning brief sent"
 echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") Morning brief complete"
 
