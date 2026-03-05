@@ -127,7 +127,15 @@ Full architecture in `sophia-email-pipeline.md`. Short version:
 ### Content Strategy (Locked In)
 - 4 TikToks daily + 2 YouTube Mon+Thu
 - Callaway Method for TikTok hooks
-- Video Bot cron: 7am, scripts land in Tasks board
+- Video Bot cron: 05:00 SAST, Content Ideas cron: 07:15 SAST, scripts land in Tasks board
+
+### Content Pipeline (05 Mar — complete)
+- Both content scripts now pull FULL live business context before generating
+- `content-news-fetcher.sh`: Daily AI/tech/business headlines from 5 public feeds (TechCrunch, VentureBeat, HN, The Verge, Fin24). No API keys. Output: `tmp/content-news-today.md`
+- `content-context-builder.sh`: Central context gatherer. 8 data sources (AOS state, today+yesterday logs, client repo commits, Supabase email_queue, meeting journal, financials, news, MEMORY.md). Output: `tmp/content-context-today.md` (~474 lines)
+- `run-video-bot.sh` and `run-content-ideas.sh` both call news fetcher + context builder before prompting Claude
+- System prompts updated with "CONTEXT YOU HAVE ACCESS TO" sections listing all data sources
+- Content must reference real, specific things from context (not generic AI fluff)
 
 ### Live Status Tracking
 - alex-status.sh built — call start/done at beginning/end of every significant task
@@ -322,12 +330,21 @@ Sophia's 20-min cron now:
 - Revenue vs Costs chart, Net Position, Sajonix Balance, Log Transaction FAB all wrapped in `isOwner`
 - Committed and pushed (commit 05e2d1a)
 
-### Agent Status (05 Mar)
+### Agent Architecture Overhaul (05 Mar — complete)
+- **46 agents total**: 16 API, 28 non-API, 2 infra (down from 52)
+- **7 agents removed/merged**: telegram-watchdog, telegram-health-check removed; weekly-memory-digest merged into weekly-memory; write-current-state merged into nightly-ops; salah-morning-brief merged into morning-brief; morning-content-ideas merged into content-creator; nightly-session-flush renamed to nightly-ops
+- **No supervisors**: All 6 domain supervisors removed. Head-agent issues commands directly to agents.
+- **Priority tier system (claude-gated)**: T1 (3 slots/hr: telegram-poller, head-agent, claude-task-worker, sophia-cron), T2 (2 slots/hr: meeting-digest, research-implement, research-digest, meet-notes-poller), T3 (1 slot/hr shared: all others). Total cap 6/hr. Unused budget borrows after 20min.
+- **Desktop App awareness**: activity-tracker writes `~/.openclaw/tmp/desktop-app-active` flag. T3 agents back off when Josh is active, T2 gets extra jitter, T1 always runs.
+- **Retry queue**: claude-gated writes rate-limited calls to `api-retry-queue.txt`. claude-task-worker consumes oldest entry (>10min old) each cycle. Stale entries (>2hr) auto-cleaned.
+- **Agent roles registry**: `config/agent-roles.json` is single source of truth for all 46 agents. Head-agent loads it on every run.
+- **Image preservation**: telegram-claude-gateway.sh now archives HF-generated images to `media/generated/` instead of deleting after Telegram send.
+
+### Agent Status (05 Mar — post-overhaul)
 - morning-brief was unloaded — reloaded, fires 07:30 daily
-- head-agent: token expiry issue (returning empty responses)
+- head-agent: token expiry issue (returning empty responses) — prompt updated with tiers + roles.json
 - email-scheduler: stuck in OOO mode
-- 15 API agents not loaded (sophia, research, memory, etc.)
-- 18 intentionally disabled (old supervisors)
+- sophia-outbound: schedule corrected from 15min → 60min
 
 ### Race Technik Staff Portal Feedback (Farhaan)
 1. Licence disc OCR → auto-fill vehicle details

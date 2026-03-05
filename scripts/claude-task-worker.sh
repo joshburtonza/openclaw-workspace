@@ -46,6 +46,64 @@ supa_patch() {
     -d "$2"
 }
 
+# ── Process one retry from the rate-limit queue (if any) ──────────────────────
+RETRY_QUEUE="$HOME/.openclaw/tmp/api-retry-queue.txt"
+if [[ -f "$RETRY_QUEUE" ]] && [[ -s "$RETRY_QUEUE" ]]; then
+  NOW_EPOCH=$(date +%s)
+  STALE_CUTOFF=$(( NOW_EPOCH - 7200 ))   # 2 hours
+  READY_CUTOFF=$(( NOW_EPOCH - 600 ))    # 10 minutes (give budget time to refill)
+
+  # Clean stale entries (>2hrs old), find oldest ready entry (>10min old)
+  RETRY_LINE=""
+  RETRY_LINENUM=0
+  CLEANED=0
+  TMPRETRY=$(mktemp /tmp/retry-clean-XXXXXX)
+  LINENUM=0
+  while IFS= read -r line; do
+    LINENUM=$(( LINENUM + 1 ))
+    ENTRY_TS=$(echo "$line" | cut -d'|' -f1)
+    if [[ "$ENTRY_TS" -lt "$STALE_CUTOFF" ]]; then
+      CLEANED=$(( CLEANED + 1 ))
+      continue  # drop stale
+    fi
+    echo "$line" >> "$TMPRETRY"
+    # Pick the oldest entry that's at least 10min old (budget should have freed)
+    if [[ -z "$RETRY_LINE" ]] && [[ "$ENTRY_TS" -lt "$READY_CUTOFF" ]]; then
+      RETRY_LINE="$line"
+      RETRY_LINENUM=$LINENUM
+    fi
+  done < "$RETRY_QUEUE"
+
+  [[ "$CLEANED" -gt 0 ]] && log "Cleaned $CLEANED stale retry entries (>2hrs)"
+
+  if [[ -n "$RETRY_LINE" ]]; then
+    RETRY_CALLER=$(echo "$RETRY_LINE" | cut -d'|' -f2)
+    RETRY_TIER=$(echo "$RETRY_LINE" | cut -d'|' -f3)
+    RETRY_ARGS=$(echo "$RETRY_LINE" | cut -d'|' -f4-)
+    log "Retrying rate-limited call: $RETRY_CALLER [$RETRY_TIER]"
+
+    # Remove this entry from the cleaned file
+    grep -vF "$RETRY_LINE" "$TMPRETRY" > "${TMPRETRY}.2" 2>/dev/null
+    mv "${TMPRETRY}.2" "$RETRY_QUEUE"
+    rm -f "$TMPRETRY"
+
+    # Re-run via claude-gated (it will re-check rate limits)
+    CLAUDE_GATED_CALLER="$RETRY_CALLER" \
+      /Users/henryburton/.openclaw/bin/claude-gated $RETRY_ARGS 2>/dev/null
+    RETRY_EXIT=$?
+
+    if [[ "$RETRY_EXIT" -eq 0 ]]; then
+      log "Retry succeeded: $RETRY_CALLER"
+    else
+      log "Retry failed (exit $RETRY_EXIT): $RETRY_CALLER — will try again next cycle"
+    fi
+    # Exit after processing one retry — don't also grab a task this cycle
+    exit 0
+  else
+    mv "$TMPRETRY" "$RETRY_QUEUE"
+  fi
+fi
+
 # ── Fetch one queued Claude Code task ─────────────────────────────────────────
 TASK_JSON=$(supa_get "task_queue?status=eq.queued&agent=eq.Claude%20Code&task_type=eq.task_execution&order=created_at.asc&limit=1")
 

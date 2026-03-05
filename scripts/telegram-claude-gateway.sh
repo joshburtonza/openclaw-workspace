@@ -546,6 +546,14 @@ if echo "$USER_MSG" | grep -qi '^\s*/image'; then
     if [[ "$IMG_OK" != "ok" ]]; then
       tg_send "Image generated but upload failed. Try again."
     fi
+
+    # ── Preserve generated image ────────────────────────────────────────────
+    IMG_ARCHIVE="$WS/media/generated"
+    mkdir -p "$IMG_ARCHIVE"
+    SAFE_PROMPT=$(echo "$IMG_PROMPT" | tr -cs '[:alnum:]' '-' | head -c 80 | sed 's/-$//')
+    ARCHIVE_NAME="$(date +%Y%m%d-%H%M%S)-${SAFE_PROMPT}.png"
+    cp "$IMG_OUT" "$IMG_ARCHIVE/$ARCHIVE_NAME" 2>/dev/null && \
+      log "Image archived: media/generated/$ARCHIVE_NAME" || true
   else
     tg_send "Image generation failed. Try a different prompt."
   fi

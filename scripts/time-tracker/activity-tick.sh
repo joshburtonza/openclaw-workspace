@@ -94,6 +94,28 @@ PY
 
 echo "$JSON" >> "$LOG_FILE"
 
+# ── Desktop-active flag for claude-gated ─────────────────────────────────────
+# If idle < 120 seconds (2 min), Josh is actively using the machine.
+# claude-gated reads this flag and backs off T3 agents / adds jitter to T2.
+DESKTOP_ACTIVE_FLAG="$HOME/.openclaw/tmp/desktop-app-active"
+if [ "$IDLE" != "null" ] && [ -n "$IDLE" ]; then
+  IDLE_INT=$(python3 -c "print(int(float('$IDLE')))")
+  if [ "$IDLE_INT" -lt 120 ]; then
+    date +%s > "$DESKTOP_ACTIVE_FLAG"
+  fi
+fi
+
+# ── Meeting email trigger for meet-notes-poller ──────────────────────────────
+# Quick check for unread Gemini Notes emails. If found, touch trigger file
+# so meet-notes-poller fires immediately via WatchPaths (instead of polling).
+MEETING_TRIGGER="$HOME/.openclaw/tmp/new-meeting-trigger"
+MEETING_COUNT=$(gog gmail search "from:gemini-notes@google.com is:unread" \
+  --account josh@amalfiai.com --json --results-only 2>/dev/null | \
+  python3 -c "import sys,json; print(len(json.loads(sys.stdin.read() or '[]')))" 2>/dev/null || echo "0")
+if [ "$MEETING_COUNT" -gt 0 ]; then
+  touch "$MEETING_TRIGGER"
+fi
+
 # Also write to Supabase audit_log (best-effort)
 # NOTE: uses anon key; RLS must allow insert. If blocked, we just continue.
 curl -s --max-time 10 -X POST "$SUPABASE_URL/rest/v1/audit_log" \

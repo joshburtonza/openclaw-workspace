@@ -234,6 +234,7 @@ log "Work detected — calling Claude Opus"
 
 # ── Send to Claude Opus ───────────────────────────────────────────────────────
 HEAD_PROMPT=$(cat "$PROMPT_FILE")
+ROLES_JSON=$(cat "$WS/config/agent-roles.json" 2>/dev/null || echo '{"agents":[]}')
 
 TMPFILE=$(mktemp /tmp/head-agent-XXXXXX)
 cat > "$TMPFILE" <<EOF
@@ -241,7 +242,17 @@ ${HEAD_PROMPT}
 
 ---
 
-## Current System State
+## Agent Roles Registry
+
+Every agent's purpose, schedule, tier, and API flag. Use this to understand what each agent does and whether it's overdue.
+
+\`\`\`json
+${ROLES_JSON}
+\`\`\`
+
+---
+
+## Current System State (live from Supabase)
 
 \`\`\`json
 ${SYSTEM_STATE}

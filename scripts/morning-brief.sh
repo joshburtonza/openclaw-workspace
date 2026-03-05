@@ -1157,7 +1157,143 @@ else
   echo "  Auto-tasks: generation failed or empty, skipping"
 fi
 
-task_complete "$TASK_ID" "Morning brief sent"
+# ── System Health Audit (from telegram-health-check) ────────────────────────
+# Quick agent count + error log scan — appended to Josh's brief as a follow-up message
+
+HEALTH_MSG=$(python3 - <<'HEALTHPY'
+import subprocess, os, glob
+from datetime import datetime, timezone
+
+# Agent count
+try:
+    r = subprocess.run(['launchctl', 'list'], capture_output=True, text=True, timeout=5)
+    all_agents = [l for l in r.stdout.splitlines() if 'com.amalfiai' in l]
+    total = len(all_agents)
+    unhealthy = [l for l in all_agents if l.split('\t')[1] not in ('0', '-')]
+    uh_count = len(unhealthy)
+except Exception:
+    total = 0
+    uh_count = 0
+
+# Recent errors (last 2 hours in err.log files)
+err_dir = os.path.expanduser('~/.openclaw/workspace-anthropic/out')
+err_count = 0
+err_agents = []
+cutoff = datetime.now(timezone.utc).timestamp() - 7200  # 2 hours
+for f in glob.glob(os.path.join(err_dir, '*.err.log')):
+    try:
+        if os.path.getmtime(f) > cutoff and os.path.getsize(f) > 0:
+            agent_name = os.path.basename(f).replace('.err.log', '')
+            err_count += 1
+            err_agents.append(agent_name)
+    except Exception:
+        pass
+
+parts = [f"Agents: {total} loaded"]
+if uh_count > 0:
+    parts.append(f"({uh_count} unhealthy)")
+else:
+    parts.append("(all healthy)")
+
+if err_count > 0:
+    parts.append(f"| Errors (2h): {', '.join(err_agents[:5])}")
+else:
+    parts.append("| No recent errors")
+
+print(' '.join(parts))
+HEALTHPY
+)
+
+if [[ -n "$HEALTH_MSG" ]]; then
+  curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+    -H "Content-Type: application/json" \
+    -d "{\"chat_id\":\"${CHAT_ID}\",\"text\":$(python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' <<< "🔧 System Health: ${HEALTH_MSG}")}" > /dev/null \
+    || true
+  echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") System health audit sent"
+fi
+
+# ── Salah's Morning Brief ────────────────────────────────────────────────────
+# Merged from salah-morning-brief.sh — sends text brief to Salah via Telegram
+# Runs after Josh's brief (same script, different chat_id)
+
+SALAH_CHAT_ID="${TELEGRAM_SALAH_CHAT_ID:-8597169435}"
+
+SALAH_BRIEF=$(python3 - <<'SALAHPY'
+import json, urllib.request, os, datetime
+
+KEY = os.environ['KEY']
+SUPABASE_URL = os.environ['SUPABASE_URL']
+headers = {'apikey': KEY, 'Authorization': 'Bearer ' + KEY}
+
+today = datetime.date.today()
+dow   = today.strftime('%A')
+
+def get(path):
+    try:
+        req = urllib.request.Request(SUPABASE_URL + '/rest/v1/' + path, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+    except Exception:
+        return []
+
+leads = get('leads?select=status,email_status,ai_score&limit=1000')
+total      = len(leads)
+contacted  = sum(1 for l in leads if l.get('status') in ('contacted','step_2','step_3','replied'))
+replied    = sum(1 for l in leads if l.get('status') == 'replied')
+won        = sum(1 for l in leads if l.get('status') == 'won')
+reply_rate = round(replied / contacted * 100, 1) if contacted > 0 else 0
+
+top_leads = sorted([l for l in leads if l.get('ai_score')], key=lambda x: x.get('ai_score',0), reverse=True)[:3]
+
+tasks = get("tasks?status=in.(todo,in_progress)&order=created_at.desc&limit=20")
+open_tasks = len(tasks)
+
+clients = get("clients?status=eq.active&select=name,status")
+active_clients = len(clients)
+
+emails = get("email_queue?status=in.(awaiting_approval,auto_pending)&select=id")
+pending_emails = len(emails)
+
+lines = [
+    f"<b>Good morning, Salah</b> — {dow}, {today.strftime('%d %b %Y')}\n",
+    "<b>Business Snapshot</b>",
+    f"  Active clients: {active_clients}",
+    f"  Open tasks: {open_tasks}",
+    f"  Emails awaiting approval: {pending_emails}",
+    "",
+    "<b>Lead Pipeline</b>",
+    f"  Total leads: {total}",
+    f"  Contacted: {contacted}  |  Replied: {replied}  |  Won: {won}",
+    f"  Reply rate: {reply_rate}%",
+]
+
+if top_leads:
+    lines.append("")
+    lines.append("<b>Top Scored Leads</b>")
+    for l in top_leads:
+        score = l.get('ai_score','?')
+        lines.append(f"  Score {score}/100")
+
+if pending_emails > 0:
+    lines.append("")
+    lines.append(f"<i>{pending_emails} email(s) waiting for Josh to approve</i>")
+
+lines.append("")
+lines.append("Reply anytime — I'm your assistant too. /remind, calendar, research, or just ask.")
+
+print('\n'.join(lines))
+SALAHPY
+)
+
+if [[ -n "$SALAH_BRIEF" ]]; then
+  curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+    -H "Content-Type: application/json" \
+    -d "{\"chat_id\":\"${SALAH_CHAT_ID}\",\"text\":$(python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' <<< "$SALAH_BRIEF"),\"parse_mode\":\"HTML\"}" > /dev/null \
+    || true
+  echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") Salah morning brief sent"
+fi
+
+task_complete "$TASK_ID" "Morning brief sent (Josh + Salah)"
 echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") Morning brief complete"
 
 agent_checkout "worker-morning-brief" "idle" "Done"

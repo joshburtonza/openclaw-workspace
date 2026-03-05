@@ -46,7 +46,14 @@ DEEPGRAM_API_KEY="${DEEPGRAM_API_KEY:-}"
 TG_API="https://api.telegram.org/bot${BOT_TOKEN}"
 
 # ── Continuous long-polling loop ──────────────────────────────────────────────
+# Self-healing: KeepAlive LaunchAgent restarts on crash. Heartbeat file lets
+# error-monitor detect if we're stuck (stale > 15 min = alert).
+HEARTBEAT_FILE="/Users/henryburton/.openclaw/tmp/telegram-poller-heartbeat"
+
 while true; do
+
+  # Touch heartbeat every cycle so monitoring can detect stalls
+  date +%s > "$HEARTBEAT_FILE" 2>/dev/null || true
 
   # Read current offset each iteration (Python updates it after processing)
   OFFSET=""
@@ -131,6 +138,7 @@ ANON_KEY         = os.environ['ANON_KEY']
 SERVICE_KEY      = os.environ['SERVICE_KEY']
 BOT_TOKEN        = os.environ['BOT_TOKEN']
 SALAH_CHAT_ID    = os.environ.get('TELEGRAM_SALAH_CHAT_ID', '')
+MASARA_CHAT_ID   = os.environ.get('TELEGRAM_MASARA_CHAT_ID', '')
 
 def tg_send(chat_id, text):
     try:
@@ -1341,6 +1349,13 @@ for u in updates:
                     _cf.write(str(chat_id))
             except Exception:
                 pass
+        elif MASARA_CHAT_ID and str(chat_id) == str(MASARA_CHAT_ID):
+            user_profile = 'masara'
+            try:
+                with open(f"{WS}/tmp/masara_private_chat_id", 'w') as _cf:
+                    _cf.write(str(chat_id))
+            except Exception:
+                pass
         else:
             try:
                 with open(f"{WS}/tmp/josh_private_chat_id", 'w') as _cf:
@@ -1830,12 +1845,413 @@ for u in updates:
 
     # ── Text: commands + free-text → Claude ───────────────────────────────────
     text_lower = text.lower()
-    actor_id = 'salah' if user_profile == 'salah' else 'josh'
+    actor_id = {'salah': 'salah', 'masara': 'masara'}.get(user_profile, 'josh')
 
-    # Josh-only commands — block for Salah (remind + meet are allowed for Salah with user isolation)
+    # Josh-only commands — block for Salah and Masara (remind + meet allowed for Salah)
     JOSH_ONLY_CMDS = ('/ooo', '/available', '/newlead', '/calibrate', '/agents', '/enrich')
-    if user_profile == 'salah' and any(text_lower.startswith(c) for c in JOSH_ONLY_CMDS):
+    if user_profile in ('salah', 'masara') and any(text_lower.startswith(c) for c in JOSH_ONLY_CMDS):
         tg_send(chat_id, "⛔ That command is Josh-only on this system.")
+        continue
+
+    # ── Masara: free-text coaching-aware lead sourcing ───────────────────
+    if user_profile == 'masara':
+        import datetime as _dt
+        import re as _re
+        masara_profile_file = f"{WS}/tmp/masara-profile.json"
+        masara_onboard_file = f"{WS}/tmp/masara-onboard-state.json"
+        GATE = f"{WS.rsplit('/workspace-anthropic', 1)[0]}/bin/claude-gated"
+
+        # Load her profile (persists across sessions)
+        masara_profile = {}
+        if os.path.exists(masara_profile_file):
+            try: masara_profile = json.loads(open(masara_profile_file).read())
+            except: pass
+
+        onboarded = masara_profile.get('onboarded', False)
+
+        # ── Free-text intent classifier ──
+        def classify_masara_intent(msg):
+            """Classify Masara's message into an intent using keywords first, Claude fallback."""
+            ml = msg.lower().strip()
+
+            # Slash commands still work silently as fallbacks
+            if ml in ('/start', '/help'):
+                return 'help'
+            if ml == '/status':
+                return 'status'
+            if ml == '/tips':
+                return 'tips'
+            if ml == '/objections':
+                return 'objections'
+            if ml == '/reset':
+                return 'reset'
+
+            # Keyword-based classification (fast, no API call)
+            # Greetings / small talk
+            greet_words = ['hi', 'hey', 'hello', 'morning', 'afternoon', 'howzit', 'hola', 'yo']
+            if ml in greet_words or (len(ml.split()) <= 3 and any(w in ml.split() for w in greet_words)):
+                return 'greeting'
+
+            # Status / usage check
+            if any(p in ml for p in ['how many leads', 'leads left', 'leads today', 'my usage',
+                                      'how many have i', 'daily limit', 'leads remaining']):
+                return 'status'
+
+            # Tips / advice
+            if any(p in ml for p in ['give me tips', 'calling tips', 'any tips', 'advice for',
+                                      'help me improve', 'how do i get better', 'pointers',
+                                      'suggestions for calls', 'what should i say']):
+                return 'tips'
+
+            # Objections
+            if any(p in ml for p in ['objection', 'pushback', 'they say no', 'not interested',
+                                      'how do i handle', 'what do i say when', 'they push back',
+                                      'reject', 'shut me down', 'gatekeeper', 'get past']):
+                return 'objections'
+
+            # Help / what can you do
+            if any(p in ml for p in ['what can you do', 'how does this work', 'what do you do',
+                                      'help me understand', 'how do i use', 'show me how']):
+                return 'help'
+
+            # Reset
+            if any(p in ml for p in ['start over', 'start fresh', 'reset my profile',
+                                      'redo onboarding', 'reset everything']):
+                return 'reset'
+
+            # Lead request — anything with numbers + titles/roles/industries/locations
+            lead_signals = ['lead', 'find me', 'get me', 'search for', 'pull me', 'source',
+                           'cto', 'ceo', 'cfo', 'coo', 'founder', 'director', 'manager',
+                           'head of', 'vp ', 'vice president', 'marketing', 'sales',
+                           'engineering', 'tech', 'companies', 'firms', 'agencies',
+                           'johannesburg', 'cape town', 'durban', 'south africa',
+                           'london', 'new york', 'saas', 'fintech', 'startup']
+            if any(s in ml for s in lead_signals):
+                return 'lead_request'
+            # Numbers combined with any text (likely a lead request)
+            if _re.search(r'\b\d{1,3}\b', ml) and len(ml.split()) >= 3:
+                return 'lead_request'
+
+            # Gratitude
+            if any(p in ml for p in ['thank', 'thanks', 'cheers', 'appreciate', 'awesome', 'perfect']):
+                return 'gratitude'
+
+            # If ambiguous, use Claude to classify (costs 1 Haiku call)
+            try:
+                classify_prompt = (
+                    "You are classifying a message from a telemarketer to her AI lead sourcing assistant. "
+                    "Classify into EXACTLY one of these categories:\n"
+                    "- lead_request (she wants leads/contacts to call)\n"
+                    "- tips (she wants calling advice or tips)\n"
+                    "- objections (she wants help handling objections)\n"
+                    "- status (she wants to know her usage/stats)\n"
+                    "- help (she wants to know what the assistant can do)\n"
+                    "- greeting (just saying hi or making small talk)\n"
+                    "- gratitude (saying thanks)\n"
+                    "- other (anything else)\n\n"
+                    f"Message: \"{msg}\"\n\n"
+                    "Reply with ONLY the category name, nothing else."
+                )
+                cr = subprocess.run(
+                    [GATE, '-m', 'claude-haiku-4-5-20251001', '-p', classify_prompt, '--max-tokens', '20'],
+                    capture_output=True, text=True, timeout=15,
+                    env={**os.environ, 'CLAUDE_GATED_CALLER': 'masara-classify'}
+                )
+                intent = cr.stdout.strip().lower().replace('"', '').replace("'", '')
+                if intent in ('lead_request', 'tips', 'objections', 'status', 'help', 'greeting', 'gratitude', 'reset'):
+                    return intent
+            except:
+                pass
+
+            # Default: assume lead request if long enough, otherwise greeting
+            return 'lead_request' if len(ml.split()) >= 4 else 'greeting'
+
+        # ── /reset handling (before onboarding check) ──
+        if text_lower == '/reset' or classify_masara_intent(text) == 'reset':
+            masara_profile = {'onboarded': False}
+            with open(masara_profile_file, 'w') as f:
+                json.dump(masara_profile, f)
+            if os.path.exists(masara_onboard_file):
+                os.remove(masara_onboard_file)
+            tg_send(chat_id, "🔄 No worries — let's start fresh! Tell me a bit about yourself.")
+            onboarded = False
+
+        # ── Onboarding state machine ──
+        if not onboarded:
+            onboard_state = {}
+            if os.path.exists(masara_onboard_file):
+                try: onboard_state = json.loads(open(masara_onboard_file).read())
+                except: pass
+
+            step = onboard_state.get('step', 'start')
+            data = onboard_state.get('data', {})
+
+            ONBOARD_STEPS = {
+                'start': {
+                    'prompt': (
+                        "Hey Masara! 👋 I'm Alex — your lead sourcing partner and calling coach here at Amalfi AI.\n\n"
+                        "Before I start pulling leads for you, I want to understand how you work "
+                        "so I can make everything as useful as possible.\n\n"
+                        "Quick question 1 of 5 — <b>have you done cold calling or telemarketing before?</b> "
+                        "If so, how long?"
+                    ),
+                    'field': 'experience',
+                    'next': 'selling',
+                },
+                'selling': {
+                    'prompt': (
+                        "Got it! 👍\n\n"
+                        "Question 2 of 5 — <b>what are you selling for Amalfi AI?</b> "
+                        "In your own words, how would you describe what we offer to someone who's never heard of us?"
+                    ),
+                    'field': 'pitch_style',
+                    'next': 'strengths',
+                },
+                'strengths': {
+                    'prompt': (
+                        "Nice one 💪\n\n"
+                        "Question 3 of 5 — <b>what do you feel are your strengths on a call?</b> "
+                        "Building rapport? Handling objections? Closing? Something else?"
+                    ),
+                    'field': 'strengths',
+                    'next': 'challenges',
+                },
+                'challenges': {
+                    'prompt': (
+                        "Love that self-awareness 🙌\n\n"
+                        "Question 4 of 5 — <b>what do you find hardest about cold calling?</b> "
+                        "Gatekeepers? Getting past \"not interested\"? Knowing what to say after the opener?"
+                    ),
+                    'field': 'challenges',
+                    'next': 'style',
+                },
+                'style': {
+                    'prompt': (
+                        "Okay, last one!\n\n"
+                        "Question 5 of 5 — <b>how would you describe your calling style?</b>\n\n"
+                        "Are you more:\n"
+                        "🅰️ Friendly and conversational\n"
+                        "🅱️ Direct and to the point\n"
+                        "🅲 Consultative (lots of questions)\n"
+                        "🅳 High-energy and enthusiastic\n\n"
+                        "Or just describe it however you like."
+                    ),
+                    'field': 'call_style',
+                    'next': 'done',
+                },
+            }
+
+            if step == 'start' and text_lower != '/reset' and classify_masara_intent(text) != 'reset':
+                tg_send(chat_id, ONBOARD_STEPS['start']['prompt'])
+                onboard_state = {'step': 'start', 'data': {}}
+                with open(masara_onboard_file, 'w') as f:
+                    json.dump(onboard_state, f)
+                continue
+
+            if step in ONBOARD_STEPS:
+                current = ONBOARD_STEPS[step]
+                data[current['field']] = text.strip()
+                next_step = current['next']
+
+                if next_step == 'done':
+                    masara_profile = {
+                        'onboarded': True,
+                        'experience': data.get('experience', ''),
+                        'pitch_style': data.get('pitch_style', ''),
+                        'strengths': data.get('strengths', ''),
+                        'challenges': data.get('challenges', ''),
+                        'call_style': data.get('call_style', ''),
+                        'onboarded_at': _dt.datetime.now().isoformat(),
+                        'total_batches': 0,
+                        'total_leads_sourced': 0,
+                        'coaching_notes': [],
+                    }
+                    with open(masara_profile_file, 'w') as f:
+                        json.dump(masara_profile, f, indent=2)
+                    if os.path.exists(masara_onboard_file):
+                        os.remove(masara_onboard_file)
+
+                    # Update masara-memory.md
+                    mem_update = (
+                        f"\n## Learned Profile (from onboarding {_dt.date.today().isoformat()})\n"
+                        f"- Experience: {data.get('experience', 'N/A')}\n"
+                        f"- How she describes Amalfi: {data.get('pitch_style', 'N/A')}\n"
+                        f"- Strengths: {data.get('strengths', 'N/A')}\n"
+                        f"- Challenges: {data.get('challenges', 'N/A')}\n"
+                        f"- Calling style: {data.get('call_style', 'N/A')}\n"
+                    )
+                    try:
+                        with open(f"{WS}/memory/masara-memory.md", 'a') as mf:
+                            mf.write(mem_update)
+                    except: pass
+
+                    style_tip = ''
+                    cs = data.get('call_style', '').lower()
+                    if 'friendly' in cs or cs.strip() == 'a':
+                        style_tip = "Your friendly style is perfect for building trust. I'll give you warm openers."
+                    elif 'direct' in cs or cs.strip() == 'b':
+                        style_tip = "Love the directness. I'll keep your call notes punchy and to the point."
+                    elif 'consult' in cs or cs.strip() == 'c':
+                        style_tip = "Consultative is gold in B2B. I'll load you up with discovery questions."
+                    elif 'energy' in cs or 'enthusias' in cs or cs.strip() == 'd':
+                        style_tip = "That energy is contagious. I'll match it with high-impact openers."
+                    else:
+                        style_tip = "I'll tailor my coaching to your style as we go."
+
+                    tg_send(chat_id,
+                        f"🎉 <b>You're all set!</b>\n\n"
+                        f"{style_tip}\n\n"
+                        f"From here, just talk to me like a normal person. For example:\n\n"
+                        f"<i>\"Get me 15 CTOs at tech companies in Joburg\"</i>\n"
+                        f"<i>\"I need some tips for handling objections\"</i>\n"
+                        f"<i>\"How many leads have I used today?\"</i>\n\n"
+                        f"With every lead batch I'll include:\n"
+                        f"✅ Contact list + CSV download\n"
+                        f"📝 Call prep notes tailored to you\n"
+                        f"💡 A coaching tip that builds on what we've covered\n\n"
+                        f"Oh — and I remember everything. The more we work together, the better I get at helping you.\n\n"
+                        f"Let's get it 🔥"
+                    )
+                else:
+                    onboard_state = {'step': next_step, 'data': data}
+                    with open(masara_onboard_file, 'w') as f:
+                        json.dump(onboard_state, f)
+                    tg_send(chat_id, ONBOARD_STEPS[next_step]['prompt'])
+                continue
+
+        # ── Onboarded: free-text intent routing ──
+        intent = classify_masara_intent(text)
+
+        if intent == 'greeting':
+            # Warm, human greeting — vary based on time of day
+            hour = _dt.datetime.now().hour
+            if hour < 12:
+                greet = "Morning Masara! ☀️"
+            elif hour < 17:
+                greet = "Hey Masara! 👋"
+            else:
+                greet = "Evening Masara! 🌙"
+            batches = masara_profile.get('total_batches', 0)
+            if batches == 0:
+                greet += " Ready to pull your first batch of leads? Just tell me who you're looking for."
+            else:
+                greet += " Ready for another round? Just tell me what you need."
+            tg_send(chat_id, greet)
+            continue
+
+        if intent == 'status':
+            usage_file = f"{WS}/tmp/masara-lead-usage-{_dt.date.today().isoformat()}"
+            used = 0
+            if os.path.exists(usage_file):
+                try: used = int(open(usage_file).read().strip())
+                except: pass
+            batches = masara_profile.get('total_batches', 0)
+            total_leads = masara_profile.get('total_leads_sourced', 0)
+            tg_send(chat_id,
+                f"📊 <b>Today:</b> {used}/50 leads used\n"
+                f"📈 <b>All time:</b> {total_leads} leads across {batches} batches\n\n"
+                f"{'You still have plenty of leads for today — fire away!' if used < 40 else 'Getting close to the daily limit — make them count! 💪'}"
+            )
+            continue
+
+        if intent == 'tips':
+            # Rotate through tips based on how many batches she's done
+            tip_bank = [
+                (
+                    "💡 <b>Tip: The first 10 seconds</b>\n\n"
+                    "Lead with value, not your name. Try:\n"
+                    "<i>\"Hi [Name], I noticed [company] is [observation] — we help with exactly that.\"</i>\n\n"
+                    "The opener decides if they stay or hang up."
+                ),
+                (
+                    "💡 <b>Tip: Ask, don't pitch</b>\n\n"
+                    "Questions keep them talking. The more they talk, the more you learn.\n"
+                    "<i>\"How are you currently handling [pain point]?\"</i>\n\n"
+                    "A good question beats a good pitch every time."
+                ),
+                (
+                    "💡 <b>Tip: Mirror their energy</b>\n\n"
+                    "If they're short and busy, be short. If they're chatty, lean in.\n"
+                    "Matching someone's pace makes them feel heard."
+                ),
+                (
+                    "💡 <b>Tip: The goal isn't to close</b>\n\n"
+                    "On a cold call, you're not closing — you're opening.\n"
+                    "The win is booking a proper meeting where the real conversation happens."
+                ),
+                (
+                    "💡 <b>Tip: Track what works</b>\n\n"
+                    "After each call, jot down: what opener did I use? What landed? What fell flat?\n"
+                    "Your best script is the one you build from real calls."
+                ),
+                (
+                    "💡 <b>Tip: Gatekeepers are allies</b>\n\n"
+                    "Don't try to trick them. Try:\n"
+                    "<i>\"Hey, I'm hoping you can help me — who handles [area] there?\"</i>\n"
+                    "Be human. They deal with pushy callers all day."
+                ),
+                (
+                    "💡 <b>Tip: Smile when you dial</b>\n\n"
+                    "Sounds silly, but people can hear a smile. It changes your tone completely.\n"
+                    "Stand up if you can — it gives your voice more energy."
+                ),
+                (
+                    "💡 <b>Tip: The power of silence</b>\n\n"
+                    "After you ask a question, stop talking. Let them fill the gap.\n"
+                    "Most people rush to fill silence — that's when they tell you what they actually need."
+                ),
+            ]
+            tip_idx = masara_profile.get('total_batches', 0) % len(tip_bank)
+            tg_send(chat_id, tip_bank[tip_idx])
+            continue
+
+        if intent == 'objections':
+            tg_send(chat_id,
+                "🛡️ <b>Handling objections</b>\n\n"
+                "<b>\"We're not interested\"</b>\n"
+                "→ <i>\"Totally fair. Quick question — if you could automate [X], "
+                "would that save you time? That's all we do.\"</i>\n\n"
+                "<b>\"Send me an email\"</b>\n"
+                "→ <i>\"Happy to. So I send the right thing — what's your biggest "
+                "pain point with [area] right now?\"</i>\n\n"
+                "<b>\"We already have a solution\"</b>\n"
+                "→ <i>\"Nice — who are you using? We work alongside most tools. "
+                "Often we fill gaps they don't cover.\"</i>\n\n"
+                "<b>\"I don't have time\"</b>\n"
+                "→ <i>\"Respect that. 30 seconds — we help companies like yours "
+                "[specific benefit]. Worth a 10-min call this week?\"</i>\n\n"
+                "<b>\"How much does it cost?\"</b>\n"
+                "→ <i>\"Depends on scope. Let me understand your needs first "
+                "so I can give you an accurate number.\"</i>\n\n"
+                "Remember — an objection isn't a no. It's a question in disguise. 💪"
+            )
+            continue
+
+        if intent == 'help':
+            tg_send(chat_id,
+                "👋 <b>Here's what I can do for you:</b>\n\n"
+                "<b>🔍 Find leads</b> — Tell me who you want to call. Titles, industries, "
+                "locations, company size — just describe it and I'll pull a clean list.\n"
+                "<i>Example: \"Get me 20 marketing directors at agencies in Cape Town\"</i>\n\n"
+                "<b>📝 Call prep</b> — Every lead batch comes with personalised call prep notes. "
+                "Opening lines, discovery questions, and objection handling tailored to you.\n\n"
+                "<b>💡 Coaching</b> — Ask me for tips, how to handle objections, or advice on "
+                "your calling approach. I'm here to help you get better.\n\n"
+                "<b>📊 Stats</b> — Ask how many leads you've used today or how you're tracking overall.\n\n"
+                "Just talk to me naturally — no special commands needed. I'll figure out what you mean. 🙂"
+            )
+            continue
+
+        if intent == 'gratitude':
+            tg_send(chat_id, "🙂 Any time! Let me know when you need more leads or want to chat through anything.")
+            continue
+
+        # ── Default: lead request ──
+        tg_send(chat_id, '🔍 On it — searching for leads and prepping your call notes...')
+        subprocess.Popen([
+            'bash', f'{WS}/scripts/cold-outreach/masara-lead-handler.sh',
+            str(chat_id), text,
+        ], stdout=subprocess.DEVNULL, stderr=open(f'{WS}/out/masara-lead-handler.err.log', 'a'))
         continue
 
     # ── Calibration wizard state machine ──────────────────────────────────────

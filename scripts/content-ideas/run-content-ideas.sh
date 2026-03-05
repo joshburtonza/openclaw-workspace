@@ -29,10 +29,13 @@ if [[ -f "$MARKER_FILE" ]]; then
 fi
 echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") attempt" > "$MARKER_FILE"
 
-# ── Load recent context for richer, timely content ───────────────────────────
-MEMORY=$(cat "$ROOT/memory/MEMORY.md" 2>/dev/null | head -200 || echo "")
-STATE=$(cat "$ROOT/CURRENT_STATE.md" 2>/dev/null | head -100 || echo "")
-YESTERDAY_LOG=$(cat "$ROOT/memory/$(date -v-1d +%Y-%m-%d 2>/dev/null || date -d 'yesterday' +%Y-%m-%d).md" 2>/dev/null | head -150 || echo "")
+# ── Build live context (news, client data, system state, meetings) ───────────
+bash "$ROOT/scripts/content-news-fetcher.sh" 2>/dev/null || true
+bash "$ROOT/scripts/content-context-builder.sh" 2>/dev/null || true
+LIVE_CONTEXT=""
+if [[ -f "$ROOT/tmp/content-context-today.md" ]]; then
+  LIVE_CONTEXT=$(cat "$ROOT/tmp/content-context-today.md" 2>/dev/null | head -300)
+fi
 TODAY=$(date '+%A, %d %B %Y')
 
 # ── Generate for each person ─────────────────────────────────────────────────
@@ -48,18 +51,13 @@ generate_for() {
   cat > "$PROMPT_TMP" <<PROMPT
 $(cat "$system_file")
 
-## RECENT CONTEXT (use this for timely, specific content)
+## LIVE BUSINESS CONTEXT
+
+Use this real, current data to make content specific and timely. Reference actual events, actual client work, actual numbers, actual news.
 
 Today is $TODAY.
 
-### What has been happening at Amalfi AI recently:
-$MEMORY
-
-### Current system state:
-$STATE
-
-### What happened yesterday:
-$YESTERDAY_LOG
+$LIVE_CONTEXT
 
 ## TODAY'S TASK
 

@@ -11,6 +11,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 PROMPT_FILE="${1:-}"
 JOB_NAME="${2:-$(basename "${PROMPT_FILE%.md}")}"
+export CLAUDE_GATE_CALLER="$JOB_NAME"
 AOS_ROOT="${AOS_ROOT:-/Users/henryburton/.openclaw/workspace-anthropic}"
 WS="$AOS_ROOT"
 

@@ -48,10 +48,14 @@ COUNT=$(echo "$EMAILS_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdi
 
 if [[ "$COUNT" -eq 0 ]]; then
   log "No new meeting notes."
+  # Clean up trigger file so WatchPaths doesn't re-fire
+  rm -f "$HOME/.openclaw/tmp/new-meeting-trigger"
   exit 0
 fi
 
 log "Found $COUNT meeting note email(s). Processing..."
+# Clean up trigger file now that we're processing
+rm -f "$HOME/.openclaw/tmp/new-meeting-trigger"
 
 export EMAILS_JSON KEY SUPABASE_URL BOT_TOKEN CHAT_ID SALAH_CHAT_ID SEEN_FILE ACCOUNT WS
 

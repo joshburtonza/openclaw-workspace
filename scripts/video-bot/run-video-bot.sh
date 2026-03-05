@@ -73,11 +73,25 @@ main() {
 
   echo "Video Bot: generating scripts for $day (youtube_day=$youtube_day)..."
 
+  # ── Build live context (news, client data, system state) ───────────────────
+  bash "$ROOT/scripts/content-news-fetcher.sh" 2>/dev/null || true
+  bash "$ROOT/scripts/content-context-builder.sh" 2>/dev/null || true
+  LIVE_CONTEXT=""
+  if [[ -f "$ROOT/tmp/content-context-today.md" ]]; then
+    LIVE_CONTEXT=$(cat "$ROOT/tmp/content-context-today.md" 2>/dev/null | head -300)
+  fi
+
   # Load system prompt from file + add today's instructions
   SYSTEM_PROMPT_FILE="$ROOT/scripts/video-bot/video-bot-system.md"
   PROMPT_TMP=$(mktemp /tmp/video-bot-prompt-XXXXXX)
   cat > "$PROMPT_TMP" <<PROMPT
 $(cat "$SYSTEM_PROMPT_FILE")
+
+## LIVE BUSINESS CONTEXT
+
+Use this real, current data to make scripts specific and timely. Reference actual events, actual client work, actual numbers, actual news.
+
+$LIVE_CONTEXT
 
 ## TODAY'S TASK
 
