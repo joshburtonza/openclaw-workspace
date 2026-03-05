@@ -73,42 +73,27 @@ main() {
 
   echo "Video Bot: generating scripts for $day (youtube_day=$youtube_day)..."
 
-  # Write prompt to temp file (stdin redirect — avoids quoting issues)
+  # Load system prompt from file + add today's instructions
+  SYSTEM_PROMPT_FILE="$ROOT/scripts/video-bot/video-bot-system.md"
   PROMPT_TMP=$(mktemp /tmp/video-bot-prompt-XXXXXX)
   cat > "$PROMPT_TMP" <<PROMPT
-You are Video Bot for Josh Burton (Amalfi AI, South Africa).
+$(cat "$SYSTEM_PROMPT_FILE")
 
-Generate content scripts in STRICT JSON only. No commentary, no markdown fences, just raw JSON.
+## TODAY'S TASK
 
-Rules:
-- 4 TikTok scripts every day
-- Also 2 YouTube scripts only if today is Monday or Thursday (today is: $day; youtube_day=$youtube_day)
-- South African English, warm, direct, no corporate speak
-- No dashes or hyphens in the writing
-- TikTok uses Callaway Method: hook, 6 to 10 lines, dopamine hits, payoff
+Today is $day. Generate:
+- 4 TikTok scripts (at least 1 from categories 7, 8, or 9)
+$(if $youtube_day; then echo "- 2 YouTube scripts (today is a YouTube day)"; else echo "- No YouTube scripts today (YouTube is Mon + Thu only)"; fi)
 
-Return JSON with shape:
+Make every script different in tone and category. Do not repeat categories across the 4 TikToks. Mix it up.
+
+Return JSON with this exact shape:
 {
   "tiktoks": [{"title": string, "category": string, "hook": string, "script_lines": [string], "payoff": string}],
   "youtubes": [{"title": string, "hook": string, "sections": [{"heading": string, "points": [string]}], "cta": string, "thumbnail": string}]
 }
 
-Constraints:
-- Ensure at least 1 TikTok is from categories 7, 8, or 9:
-  7 Make it make sense
-  8 What I told my telemarketer
-  9 The OpenClaw Build Series
-
-Categories list:
-1 AI agency automation
-2 Client success systems
-3 Building in public
-4 Cold outreach sales
-5 Killing debt
-6 Personal brand
-7 Make it make sense
-8 What I told my telemarketer
-9 The OpenClaw Build Series
+If no YouTube scripts today, return "youtubes": [].
 PROMPT
 
   # Run Claude — use stdin redirect (not arg passing — avoids quoting failures)
