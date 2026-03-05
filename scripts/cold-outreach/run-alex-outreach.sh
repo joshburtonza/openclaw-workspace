@@ -258,11 +258,70 @@ VERTICAL_LEGAL_PROP    = {
 }
 VERTICAL_LOGISTICS     = {'logistics', 'supply chain', 'transportation', 'freight', 'courier', 'dispatch'}
 
-OUTCOME_HOOKS = {
-    'recruitment':    'CV screening in under 30 seconds',
-    'legal_property': 'contract intake processed without manual triage',
-    'logistics':      'booking and dispatch flow without the back-and-forth',
+VERTICAL_INDUSTRIAL = {
+    'mining', 'mining operations', 'industrial', 'manufacturing', 'plant',
+    'processing', 'heavy industry', 'resources', 'minerals', 'metallurgy',
+    'smelting', 'refinery',
 }
+VERTICAL_MEDIA = {
+    'media', 'entertainment', 'broadcast', 'television', 'tv channel',
+    'lifestyle channel', 'streaming', 'publishing', 'magazine', 'events',
+    'advertising sales', 'sponsorship',
+}
+
+OUTCOME_HOOKS = {
+    'recruitment':        'tool consolidation that replaces fragmented spend on Venturi, LinkedIn Recruiter, and ChatGPT',
+    'legal_property':     'contract intake processed without manual triage',
+    'logistics':          'booking and dispatch flow without the back-and-forth',
+    'industrial':         'compliance reporting and shift data captured automatically, no manual entry',
+    'media_entertainment':'ad sales pipeline automated, subscription acquisition on autopilot',
+}
+
+# ── Geo detection ────────────────────────────────────────────────────────────
+
+SA_SIGNALS = {
+    '.co.za', '.za', 'south africa', 'johannesburg', 'cape town', 'durban',
+    'pretoria', 'sandton', 'centurion', 'stellenbosch', 'port elizabeth',
+    'bloemfontein', 'polokwane', 'nelspruit', 'pietermaritzburg',
+}
+UK_SIGNALS = {
+    '.co.uk', '.uk', 'united kingdom', 'london', 'manchester', 'birmingham',
+    'leeds', 'glasgow', 'edinburgh', 'bristol', 'liverpool', 'sheffield',
+    'cardiff', 'belfast', 'nottingham', 'southampton',
+}
+US_SIGNALS = {
+    '.com', 'united states', 'new york', 'san francisco', 'los angeles',
+    'chicago', 'houston', 'phoenix', 'philadelphia', 'san antonio',
+    'dallas', 'austin', 'seattle', 'boston', 'denver', 'atlanta',
+}
+
+def detect_geo(lead):
+    """Detect lead geography from country field, email domain, notes, or tags."""
+    country = (lead.get('country') or '').lower().strip()
+    if country:
+        if any(s in country for s in ['south africa', 'sa', 'za']):
+            return 'south_africa'
+        if any(s in country for s in ['united kingdom', 'uk', 'england', 'scotland', 'wales']):
+            return 'united_kingdom'
+        if any(s in country for s in ['united states', 'us', 'usa', 'america']):
+            return 'united_states'
+        return 'international'
+
+    email   = (lead.get('email') or '').lower()
+    notes   = (lead.get('notes') or '').lower()
+    website = (lead.get('website') or '').lower()
+    tags    = ' '.join([t.lower() for t in (lead.get('tags') or [])])
+    blob    = f"{email} {notes} {website} {tags}"
+
+    if any(s in blob for s in SA_SIGNALS):
+        return 'south_africa'
+    if any(s in blob for s in UK_SIGNALS):
+        return 'united_kingdom'
+    # .com is too generic, only match US if city/country signals present
+    us_check = {s for s in US_SIGNALS if s != '.com'}
+    if any(s in blob for s in us_check):
+        return 'united_states'
+    return 'international'
 
 def detect_industry(lead):
     tags     = [t.lower() for t in (lead.get('tags') or [])]
@@ -276,6 +335,10 @@ def detect_industry(lead):
         return 'legal_property'
     if any(v in combined for v in VERTICAL_LOGISTICS):
         return 'logistics'
+    if any(v in combined for v in VERTICAL_INDUSTRIAL):
+        return 'industrial'
+    if any(v in combined for v in VERTICAL_MEDIA):
+        return 'media_entertainment'
     return 'general'
 
 # ── Website research ──────────────────────────────────────────────────────────
@@ -329,6 +392,9 @@ def build_prompt(lead, step, website_context):
     fname   = lead.get('first_name', 'there')
     company = lead.get('company', '') or 'your company'
     notes   = lead.get('notes', '') or ''
+    geo     = detect_geo(lead)
+    vertical = detect_industry(lead)
+    hook    = OUTCOME_HOOKS.get(vertical, '')
 
     known_parts = []
     if notes:
@@ -337,77 +403,93 @@ def build_prompt(lead, step, website_context):
         known_parts.append(f"Website snippet: {website_context}")
     known = "\n".join(known_parts) or "No additional context available."
 
-    base_rules = """STRICT RULES. Violate any of these and the email fails.
+    # ── Geo-aware tone rules ──
+    if geo == 'south_africa':
+        tone_rules = """TONE: South African English. Casual, warm, direct. These words are welcome if they fit naturally: howzit, kak, hectic, sharp, sorted, bru, ou, eish, ja, no stress. Do not force them.
+NEVER use "lekker" or "aweh". Do not use them anywhere.
+Greeting: "Howzit {fname}," on its own line.""".format(fname=fname)
+    elif geo == 'united_kingdom':
+        tone_rules = f"""TONE: British English. Professional but warm, not stiff. No slang. No SA slang (no howzit, bru, eish, kak, etc). Natural and conversational, like a sharp colleague sending a note.
+Greeting: "Hi {fname}," on its own line."""
+    elif geo == 'united_states':
+        tone_rules = f"""TONE: American English. Friendly, direct, no fluff. No slang from other regions. Natural and conversational, like someone you would grab a coffee with.
+Greeting: "Hey {fname}," on its own line."""
+    else:
+        tone_rules = f"""TONE: Professional international English. Warm but not overly casual. No regional slang. Clear and human.
+Greeting: "Hi {fname}," on its own line."""
+
+    base_rules = f"""STRICT RULES. Violate any of these and the email fails.
 
 NO hyphens or dashes anywhere. Not in the subject. Not in the body. Not ever. Not a single one.
 NO corporate words: leverage, synergies, solutions, streamline, cutting edge, transform, innovative, seamless, empower, robust.
 NO banned phrases: "I hope this finds you well", "I came across", "I wanted to reach out", "I noticed", "I stumbled", "touch base", "circle back", "following up", "checking in".
 NO banned words: game changer, move the needle, best in class, deep dive, bandwidth, holistic, paradigm, synergy.
 NO "Cheers," or any word before the sign off. Sign off is Alex on line 1, Amalfi AI on line 2. That is it. No "Warm regards", no "Best", no "Thanks". Just the two lines.
-SA English throughout. These words are welcome if they fit naturally: howzit, kak, hectic, sharp, sorted, bru, ou, eish, ja, aweh, no stress. Do not force them.
-NEVER use "lekker". Do not use it anywhere.
+{tone_rules}
 Subject line: short, human, no punchline, no exclamation marks, no capitalising every word.
-Email body: max 90 words. Reads like a real person typed it on their phone. Casual. Not polished. Not a template.
+Email body: max 100 words. Reads like a real person typed it on their phone. Casual. Not polished. Not a template.
 
 Return EXACTLY this format with nothing before or after:
 Subject: [subject line]
 Body: [full email body including sign off]"""
 
+    # ── Build vertical-specific value line ──
+    value_line = ""
+    if hook:
+        value_line = f"\nVertical insight to weave in naturally (do NOT quote verbatim): {hook}"
+    if vertical == 'industrial':
+        value_line += "\nCTA variant: offer a 20 minute live demo instead of a free audit. SA industrial buyers expect technical validation early."
+    if vertical == 'recruitment':
+        value_line += "\nPosition as cost reduction, not new expense. They are already spending 10k+ ZAR on fragmented tools."
+
     if step == 1:
-        return f"""You are Alex from Amalfi AI. You are South African. Write a genuine first cold email to {fname} at {company}.
+        return f"""You are Alex from Amalfi AI. Write a genuine first cold email to {fname} at {company}.
 
 Context about {company}:
 {known}
+{value_line}
 
-TONE REFERENCE — this is a real example of the exact style and feel you must match:
+WHAT ALEX DOES: Alex works at Amalfi AI, an AI automation agency. We build AI systems that handle repetitive business operations — things like client communication pipelines, compliance reporting, invoicing flows, booking systems, outreach automation. Our clients typically reclaim 60 to 70 percent of their admin time within 90 days.
 
-"Howzit Warren, pretty sick what you guys are doing at Aura, we know you didnt ask for this but we spotted this change in the tech industry, we believe there could be a pretty big ROI in it for you guys, we arent sure if this will be a good fit for you guys but maybe we can hop on a call and have a chat about it. looking forward to hearing from you"
+Write the email with this structure:
 
-Write a version of that for {fname} at {company}. Do NOT copy it word for word. Same shape, same energy, same length. Key requirements:
+1. Greeting (see tone rules below).
+2. One genuine, specific line about what {company} does — reference something REAL from the context above. Not generic praise. Name a product, a service, a market they are in. Show you actually looked.
+3. Introduce what Amalfi does in ONE sentence. Be specific about what kind of automation is relevant to THEIR business based on the context. NOT vague "change in the tech industry" language. Name the operational problem you could solve for them. Example: "we build AI systems that handle [specific thing relevant to their business] so your team can focus on [what matters to them]."
+4. One concrete outcome or proof point. A real number, a real result, a real reference. Not "pretty big ROI" — something tangible like "one of our clients went from 3 hours of daily admin to 20 minutes" or "we automated an entire invoicing pipeline handling 500 documents a month."
+5. Honest qualifier: "not sure if this is a fit for you guys" energy. Genuinely low pressure.
+6. Casual invite to a quick call or Loom (short recorded video). End with something warm before sign off.
 
-1. "Howzit {fname}," on its own line.
-2. One short, enthusiastic line about {company} using something real from the context. Same energy as "pretty sick what you guys are doing at Aura". Not a detailed description of their business. Not a challenge they face. Just genuine, brief enthusiasm for what they are building or doing.
-3. "we know you didnt ask for this" — use "we" not "I". Transparent and direct.
-4. "we spotted this change in the tech industry" — keep it vague like that. Do NOT name what the change is or which specific tech. The curiosity is the hook.
-5. "pretty big ROI in it for you guys" — casual, not corporate.
-6. "we arent sure if this will be a good fit" — genuinely honest.
-7. "maybe we can hop on a call and have a chat about it" or similar casual invite. Then end with "looking forward to hearing from you" as the final line before sign-off.
-
-The whole email is one short paragraph, maybe 2 to 3 sentences. Flows like texting. Lowercase is fine. Casual punctuation is fine.
+The whole email should flow as one natural paragraph, maybe two short ones. Keep it tight.
 
 {base_rules}"""
 
     elif step == 2:
         return f"""You are Alex from Amalfi AI. Second email to {fname} at {company}. First email got no reply.
 
-TONE REFERENCE — match this exactly in shape and energy:
-"Hey Warren, we know cold outreach is shit, but a man's gotta do what a man's gotta do to get business right. We still feel this might be great tech for you guys, would you guys be down for a meet or even a Loom (short recorded video), could work?"
+Write a short follow up. Requirements:
+1. Greeting (see tone rules below).
+2. Acknowledge this is a follow up without using "just checking in" or "following up". Be self aware about cold outreach. Something honest like acknowledging nobody asked for this but you genuinely think there is something here.
+3. Come from a DIFFERENT angle than the first email. If step 1 was about the operational problem, this one should be about a specific outcome or case study. Mention something concrete: "we just finished building [type of system] for a [similar type of company]" or "we helped a [vertical] company cut their [specific process] time by [real percentage]."
+4. Offer a Loom (short recorded video) as an alternative to a call. Frame it casually: "even a 2 minute Loom might be easier than a call."
+5. Keep it genuinely low pressure. No guilt.
 
-Write a version for {fname} at {company}. Same shape. Requirements:
-1. "Hey {fname}," on its own line.
-2. Acknowledge cold outreach is kak but you are doing it anyway because you have to. "a man's gotta do what a man's gotta do to get business right" energy — honest and a little self-aware. Use "we" not "I".
-3. "We still feel this might be great for you guys" — one sentence, low pressure, using "we".
-4. Offer a Loom as an alternative to a call. A Loom is a short recorded video. Phrase it casually like Josh did: "would you guys be down for a meet or even a Loom, could work?" — do not over-explain what a Loom is.
-
-Two to three sentences total. One short paragraph. Flows like texting. Lowercase fine.
+Three to four sentences max. One short paragraph.
 
 {base_rules}"""
 
     else:
         return f"""You are Alex from Amalfi AI. Third and last email to {fname} at {company}. Two emails, no reply.
 
-TONE REFERENCE — match this exactly in shape and energy:
-"fine, play hard to get, it's cool, i like the chase. but not at the risk of annoying you. door's always open whenever you're ready."
-
-Write a version for {fname}. Same shape. Requirements:
-1. "Hey {fname}," on its own line.
-2. "fine, play hard to get, it's cool" energy — amused, not bitter, not desperate. You actually respect the move.
-3. One line: you are not going to keep pushing at the risk of being annoying.
+Write the final touchpoint. This is the graceful close. Requirements:
+1. Greeting (see tone rules below).
+2. Amused energy, not bitter or desperate. You respect that they are busy or not interested. Something playful.
+3. One line: you are not going to keep pushing.
 4. Leave the door open. No expiry. Reach out whenever.
 
-Two to three sentences max. Flows like a text. Lowercase fine.
-Subject: something casual like "fine" or "last one" or "aight" — short, lowercase.
-Do NOT guilt-trip. Do NOT say "I understand you must be busy."
+Two to three sentences max. Flows like a text.
+Subject: something casual and short, lowercase.
+Do NOT guilt trip. Do NOT say "I understand you must be busy."
 
 {base_rules}"""
 
@@ -544,7 +626,8 @@ try:
     website = lead.get('website', '')
 
     vertical = detect_industry(lead)
-    print(f"[alex] Step {step} → {email} ({company}) [vertical: {vertical}]")
+    geo = detect_geo(lead)
+    print(f"[alex] Step {step} → {email} ({company}) [vertical: {vertical}] [geo: {geo}]")
 
     # Research
     print(f"[alex] Fetching website context: {website or '(none)'}")

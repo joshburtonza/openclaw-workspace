@@ -88,6 +88,8 @@ def normalise_col(name):
         return 'status'
     if n in ('full_name', 'name', 'contact', 'contact_name'):
         return '_full_name'
+    if n in ('country', 'country_name', 'location', 'region', 'geo', 'geography'):
+        return 'country'
     return None  # ignore
 
 def split_full_name(name):

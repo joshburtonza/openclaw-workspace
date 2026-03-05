@@ -186,9 +186,28 @@ Source: Meeting: Notes: "Loxo replacement for SA" Feb 27, 2026
 
 | Step | Trigger | Notes |
 |---|---|---|
-| 1 | New lead, no prior contact | Full intro + vertical hook + free audit CTA |
-| 2 | 4+ days since step 1, no reply | Short follow-up, different angle, no "just checking in" |
-| 3 | 9+ days since step 2, no reply | Graceful close, door left open |
+| 1 | New lead, no prior contact | Specific intro + what Amalfi does for THEIR business + concrete proof point + casual CTA |
+| 2 | 4+ days since step 1, no reply | Different angle, specific case study or outcome, offer Loom alternative |
+| 3 | 9+ days since step 2, no reply | Graceful close, playful energy, door left open |
+
+---
+
+## Geo-Aware Tone (added 2026-03-05)
+
+Email tone adapts to the lead's geography. Detected from: `country` field, email domain (.co.za, .co.uk), notes, website, tags.
+
+| Geo | Greeting | Tone | Slang |
+|---|---|---|---|
+| South Africa | "Howzit {fname}," | Casual, warm, direct SA English | howzit, kak, hectic, sharp, sorted, bru, eish, ja. NEVER lekker, NEVER aweh |
+| United Kingdom | "Hi {fname}," | Professional but warm British English | No slang, no SA slang, conversational |
+| United States | "Hey {fname}," | Friendly, direct American English | No regional slang, coffee chat energy |
+| International | "Hi {fname}," | Professional international English | No regional slang, clear and warm |
+
+### Key Changes (2026-03-05):
+- **Removed "aweh"** from SA vocabulary — Josh flagged it as forced
+- **Step 1 is no longer vague** — no more "we spotted this change in the tech industry." Instead: name what Amalfi does, name the specific operational problem relevant to their business, give a concrete proof point (real number, real result)
+- **Step 2 comes from a different angle** — if step 1 was about the problem, step 2 is about a case study or specific outcome
+- **All steps geo-adapted** — SA leads get SA English, UK leads get British English, US leads get American English
 
 ---
 
