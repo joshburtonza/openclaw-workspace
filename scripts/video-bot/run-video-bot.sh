@@ -57,8 +57,9 @@ main() {
   local MARKER_DIR="$ROOT/tmp/video-bot"
   local MARKER_FILE="$MARKER_DIR/done-$(date +%Y-%m-%d).txt"
   mkdir -p "$MARKER_DIR"
-  if [[ -f "$MARKER_FILE" ]]; then
-    echo "Video Bot: already ran today (marker exists) — skipping"
+  # Two-phase marker: "attempt" allows retry, only "success" blocks re-run
+  if [[ -f "$MARKER_FILE" ]] && grep -q "success" "$MARKER_FILE" 2>/dev/null; then
+    echo "Video Bot: already succeeded today (marker exists) — skipping"
     exit 0
   fi
   echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") attempt" > "$MARKER_FILE"
@@ -68,6 +69,7 @@ main() {
   existing=$(supa_get_today_count || echo "0")
   if [[ "$existing" -ge 4 ]]; then
     echo "Video Bot: scripts already present for today ($existing) — skipping"
+    echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") success (existing=$existing)" > "$MARKER_FILE"
     exit 0
   fi
 
@@ -112,11 +114,12 @@ PROMPT
 
   # Run Claude — use stdin redirect (not arg passing — avoids quoting failures)
   unset CLAUDECODE
+  export CLAUDE_GATE_CALLER=content-creator
   local json
   json=$(/Users/henryburton/.openclaw/bin/claude-gated --print \
     --dangerously-skip-permissions \
     --model "$MODEL" \
-    < "$PROMPT_TMP" 2>/dev/null)
+    < "$PROMPT_TMP")
   rm -f "$PROMPT_TMP"
 
   if [[ -z "$json" ]]; then
@@ -199,6 +202,8 @@ for it in items:
 
 print(f"Video Bot: done — {inserted} scripts inserted into Supabase tasks")
 PY
+
+  echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") success" > "$MARKER_FILE"
 }
 
 main "$@"

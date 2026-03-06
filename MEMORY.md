@@ -368,3 +368,20 @@ Sophia's 20-min cron now:
 - System should learn Josh's patterns, preferences, business context from interactions
 - Only channels: Desktop App + Telegram
 
+
+## Update: 2026-03-06
+
+### Content-Creator Agent Failure & Fix
+- **Root cause:** SOCKS5 SSH tunnel was dead for 64 hours (March 3 22:41 to March 6 14:33). At 05:00, claude-gated routed through dead proxy → empty response from Claude CLI.
+- **socks-tunnel.log gap** is the definitive evidence. The api-gate.log showed the call was ALLOWED — the failure was downstream at the proxy level.
+- **5 fixes applied to `scripts/video-bot/run-video-bot.sh`:** two-phase marker (attempt vs success), removed 2>/dev/null, added CLAUDE_GATE_CALLER, moved success marker after insert, removed old single-phase check.
+- **Lesson:** Any agent using SOCKS proxy can silently fail if the tunnel drops. Need health check or auto-restart for socks-tunnel LaunchAgent.
+- **Lesson:** `claude-gated` exits 0 silently when rate-limited AND when proxy is dead — both produce the same misleading "token may be expired" message. The video bot should check for specific failure modes.
+
+### Manual Content Scripts Inserted
+- Generated 4 TikToks directly from Desktop App session when re-run was rate-limited at 6/6 global cap.
+- Inserted via Python requests to Supabase tasks table (created_by: Video Bot, assigned_to: Josh, status: todo).
+- Categories used: 9 (OpenClaw Build), 7 (Make it make sense), 3 (Building in public), 8 (What I told my telemarketer).
+
+### MCP Connectors Reviewed
+- ~26 MCP servers configured in Desktop App: Serena (code intelligence), Playwright (browser automation), Context7 (docs), Firebase, Figma, Gmail, GCal, Notion, Sentry, Supabase, Vercel, Jam (bug reports), Gamma (presentations), Clay (prospecting), GoDaddy (domains), Excalidraw (diagrams), Chrome control, Desktop Commander, Claude Preview, PDF tools, Explorium/Vibe Prospecting, Scheduled Tasks.

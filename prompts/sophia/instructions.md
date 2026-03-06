@@ -153,6 +153,8 @@ Env secrets:      .env.scheduler
 **Clients:**
 - Riaan Kotze, André — Ascend LC (QMS Guard platform, ISO/compliance)
 - Mo, Irshad — Favlog (FLAIR ERP, supply chain)
+- Yaseen, Farhaan — Race Technik (Chrome Auto Care detailing platform)
+- Vanta Studios — Creative production studio (Mac Mini infrastructure, content pipeline automation)
 
 **External contacts:**
 - Candice Sprout (candice.m.sprout@gmail.com) — external prospect/contact
