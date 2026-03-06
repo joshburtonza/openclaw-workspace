@@ -27,6 +27,7 @@
   ✅ content-creator (T3, daily 05:00)
   ✅ calendar-sync (non-API, 30min)
   ✅ rt-token-sync (non-API, 30min)
+  ✅ rt-monitor (non-API, 1hr)
   ✅ data-os-sync (non-API, daily 02:00)
   ✅ agent-status-updater (non-API, 30min)
   ✅ activity-tracker (non-API, 5min)
@@ -101,3 +102,8 @@
 - Audit pass: sophia-outbound schedule fixed (15→60min), retry queue wired, head-agent synced with roles.json
 - CLAUDE.md refreshed for new architecture
 - telegram-claude-gateway.sh: HF images now preserved in media/generated/
+- rt-monitor deployed: SSH health monitor for RT Mac Mini via Tailscale, 1hr interval, auto-restart + Supabase task + Telegram alerts
+- rt-token-sync launchctl label bug fixed (com.amalfiai → com.raceai)
+- Broken RT Mac Mini sophia agents disabled (scripts didn't exist there)
+- Workspace + repos synced and clean
+- AOS mandate confirmed: owns all client systems including remote machines
