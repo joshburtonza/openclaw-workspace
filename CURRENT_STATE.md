@@ -1,109 +1,83 @@
-# CURRENT STATE — 2026-03-05 14:30 UTC
-> Manual update after Hybrid Architecture overhaul. Next auto-gen overwrites at ~01:00 UTC.
-
-## Architecture Summary
-- **46 agents**: 16 API (tiered), 28 non-API, 2 infra
-- **API budget**: 6 calls/hr via claude-gated (T1: 3, T2: 2, T3: 1)
-- **No supervisors**: Head-agent orchestrates directly
-- **Retry queue**: claude-task-worker processes rate-limited retries
-- **Desktop awareness**: T3 agents back off when Josh active
+# CURRENT STATE — 2026-03-06 01:00 UTC
+> Auto-generated every night. Read this file for live operational context.
 
 ## Agent Health
-  ✅ telegram-poller (T1, KeepAlive)
-  ✅ head-agent (T1, 5min)
-  ✅ claude-task-worker (T1, 60s)
-  ✅ sophia-cron (T1, 60min)
-  ✅ meeting-digest (T2, 10min)
-  ✅ research-implement (T2, 10min)
-  ✅ research-digest (T2, 30min)
-  ✅ meet-notes-poller (T2, 10min)
-  ✅ sophia-followup (T3, daily 14:00)
-  ✅ sophia-outbound (T3, 60min)
-  ✅ memory-writer (T3, 30min)
-  ✅ weekly-memory (T3, Sun 18:00)
-  ✅ daily-repo-sync (T3, daily 09:00)
-  ✅ morning-brief (T3, daily 07:30)
-  ✅ alex-reply-detection (T3, 4hr)
-  ✅ content-creator (T3, daily 05:00)
-  ✅ calendar-sync (non-API, 30min)
-  ✅ rt-token-sync (non-API, 30min)
-  ✅ rt-monitor (non-API, 1hr)
-  ✅ data-os-sync (non-API, daily 02:00)
-  ✅ agent-status-updater (non-API, 30min)
-  ✅ activity-tracker (non-API, 5min)
-  ✅ email-response-scheduler (non-API, 5min)
-  ✅ alex-outreach (non-API, 30min)
-  ✅ apollo-sourcer (non-API, Mon+Thu 08:00)
-  ✅ enrich-leads (non-API, 30min)
-  ✅ nightly-ops (non-API, 22:00+03:00)
-  ✅ finance-poller (non-API, 07:00+18:00)
-  ✅ finance-report (non-API, monthly 1st)
-  ✅ fnb-email-poller (non-API, 10min)
-  ✅ retainer-tracker (non-API, monthly 5th)
-  ✅ statement-reminder (non-API, monthly 12th)
-  ✅ pending-nudge (non-API, 09:00+15:00)
-  ✅ git-backup (non-API, 6hr)
-  ✅ reminder-poller (non-API, 5min)
-  ✅ whatsapp-capture (non-API, daily 06:00)
-  ✅ whatsapp-inbound-notifier (non-API, 5min)
-  ✅ email-opens-poller (non-API, 5min)
-  ✅ error-monitor (non-API, 10min)
-  ✅ video-poller (non-API, 4x daily)
-  ✅ tiktok-live-reminder (non-API, Mon/Wed/Fri)
-  ✅ read-ai-sync (non-API)
-  ✅ discord-morning-nudge (non-API)
-  ✅ weekly-client-reports (T3, Tue 09:30)
-  ✅ salah-weekly-brief (T3, Mon 08:30)
-  ✅ aos-value-report (T3, monthly 1st)
-  ✅ socks-tunnel (infra, KeepAlive)
-  ✅ pinchtab (infra, KeepAlive)
-  ✅ discord-community-bot (infra, KeepAlive)
-
-## Removed Agents (in disabled-openclaw/)
-  ⬜ telegram-watchdog (replaced by self-healing in poller)
-  ⬜ telegram-health-check (merged into morning-brief)
-  ⬜ weekly-memory-digest (merged into weekly-memory)
-  ⬜ write-current-state (merged into nightly-ops)
-  ⬜ salah-morning-brief (merged into morning-brief)
-  ⬜ morning-content-ideas (merged into content-creator)
-  ⬜ nightly-session-flush (renamed to nightly-ops)
-  ⬜ 6x domain supervisors (removed — head-agent direct)
-  ⬜ heartbeat, silence-detection, agent-toggle-daemon, qms-merge-1am, claude-startup, nightly-github-sync
+  ✅ read-ai-sync (exit 0)
+  ✅ calendar-sync (exit 0)
+  ✅ tiktok-live-reminder (exit 0)
+  ✅ alex-outreach (exit 0)
+  ✅ salah-weekly-brief (exit 0)
+  ✅ pending-nudge (exit 0)
+  ✅ socks-tunnel (exit 0)
+  ✅ apollo-sourcer (exit 0)
+  ✅ morning-brief (exit 0)
+  ✅ email-opens-poller (exit 0)
+  ✅ error-monitor (exit 0)
+  ✅ rt-token-sync (exit 0)
+  ✅ whatsapp-inbound-notifier (exit 0)
+  ✅ agent-status-updater (exit 0)
+  ✅ rt-monitor (exit 0)
+  ✅ head-agent (exit 0)
+  ✅ finance-report (exit 0)
+  ✅ whatsapp-capture (exit 0)
+  ✅ weekly-memory (exit 0)
+  ✅ claude-task-worker (exit 0)
+  ✅ reminder-poller (exit 0)
+  ✅ statement-reminder (exit 0)
+  ✅ aos-value-report (exit 0)
+  ✅ activity-tracker (exit 0)
+  ✅ enrich-leads (exit 0)
+  ✅ weekly-client-reports (exit 0)
+  ✅ meet-notes-poller (exit 0)
+  ✅ pinchtab (exit 0)
+  ✅ content-creator (exit 0)
+  ✅ data-os-sync (exit 0)
+  ✅ email-response-scheduler (exit 0)
+  ✅ sophia-outbound (exit 0)
+  ✅ telegram-poller (exit 0)
+  ✅ fnb-email-poller (exit 0)
+  ✅ retainer-tracker (exit 0)
+  ✅ video-poller (exit 0)
+  ✅ git-backup (exit 0)
+  ✅ nightly-ops (exit 0)
 
 ## Email Queue
   auto_pending: 1
-  awaiting_approval: 3
-  rejected: 17
+  awaiting_approval: 6
+  rejected: 14
   sent: 20
   skipped: 9
 
 ## Pending Approvals / Auto-Sends
   ⚡ [race_technik] Checking in — Chrome Auto Care (auto_pending)
-  ⏳ [ascend_lc] Ascend LC (QMS Guard) weekly progress report (awaiting_approval)
-  ⏳ [favorite_logistics] Favorite Logistics (FLAIR) weekly progress report (awaiting_approval)
-  ⏳ [race_technik] Race Technik (Chrome Auto) weekly progress report (awaiting_approval)
+  ⏳ [ascend_lc] Ascend LC (QMS Guard) weekly progress report (week ending 20 (awaiting_approval)
+  ⏳ [favorite_logistics] Favorite Logistics (FLAIR) weekly progress report (week endi (awaiting_approval)
+  ⏳ [race_technik] Race Technik (Chrome Auto) weekly progress report (week endi (awaiting_approval)
+  ⏳ [ascend_lc] Quick note re: 2026-03 invoice (awaiting_approval)
+  ⏳ [race_technik] Quick note re: 2026-03 invoice (awaiting_approval)
+  ⏳ [favorite_logistics] Quick note re: 2026-03 invoice (awaiting_approval)
 
 ## OOO Status
   Josh available
 
+## Active Reminders
+  (none)
+
 ## Repo Status
-  workspace: dirty (architecture changes uncommitted)
+  workspace: 2 dirty
   mission-control-hub: clean
   qms-guard: 1 behind
   favorite-flow: 6 behind
 
-## Key Config Files
-  agent-roles.json: config/agent-roles.json (46 agents, single source of truth)
-  agent-priorities.conf: ~/.openclaw/config/agent-priorities.conf (tier budgets)
-  claude-gated: ~/.openclaw/bin/claude-gated (6-layer API wrapper with tiers)
+## Recent Activity
+  2026-03-06 00:39 — dirty: workspace | behind: qms-guard, favorite-flow
+  2026-03-06 00:44 — dirty: workspace | behind: qms-guard, favorite-flow
+  2026-03-06 00:49 — dirty: workspace | behind: qms-guard, favorite-flow
+  2026-03-06 00:54 — dirty: workspace | behind: qms-guard, favorite-flow
+  2026-03-06 00:59 — dirty: workspace | behind: qms-guard, favorite-flow
 
-## Today's Changes
-- Hybrid Architecture Chunks 1-5 complete (priority tiers, agent cleanup, merges, roles registry)
-- Audit pass: sophia-outbound schedule fixed (15→60min), retry queue wired, head-agent synced with roles.json
-- CLAUDE.md refreshed for new architecture
-- telegram-claude-gateway.sh: HF images now preserved in media/generated/
-- rt-monitor deployed: SSH health monitor for RT Mac Mini via Tailscale, 1hr interval, auto-restart + Supabase task + Telegram alerts
-- rt-token-sync launchctl label bug fixed (com.amalfiai → com.raceai)
-- Broken RT Mac Mini sophia agents disabled (scripts didn't exist there)
-- Workspace + repos synced and clean
-- AOS mandate confirmed: owns all client systems including remote machines
+## Scope Creep Alerts
+  ⚠️ race_technik: SCOPE_CREEP_RISK (5 workflow categories, threshold 4)
+
+## Today's Log
+  (no log yet today)
