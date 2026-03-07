@@ -155,6 +155,6 @@ send_brief "race_technik"       "Race Technik"     "race_technik"       "clients
 send_brief "ascend_lc"          "Project - EDITH"  "ascend_lc"          "clients/qms-guard"
 send_brief "favorite_logistics" "Logistics"        "favorite_logistics" "clients/favorite-flow-9637aff2"
 send_brief "vanta_studios"      "Vanta Studios"    "vanta_studios"      "clients/vanta-studios"
-send_brief "ambassadex"         "AMBASSADEX"       "ambassadex"         "clients/ambassadex"
+send_brief "ambassadex"         "Project Ozayr"    "ambassadex"         "clients/ambassadex"
 
 log "wa-weekly-brief complete"

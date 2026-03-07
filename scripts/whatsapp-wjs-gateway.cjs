@@ -43,8 +43,9 @@ const CONTACTS_FILE           = path.join(WS, 'memory/whatsapp-contacts.json');
 const MUTED_GROUPS_FILE       = path.join(WS, 'tmp/whatsapp-muted-groups.txt');
 const LID_MAP_FILE            = path.join(WS, 'memory/whatsapp-lid-map.json');
 
-// 3-minute debounce — accumulate messages per chat, fire once after silence
-const DEBOUNCE_MS    = 3 * 60 * 1000;
+// Debounce timings — groups get 3 min (batch multi-person bursts), DMs get 45s (conversational)
+const DEBOUNCE_GROUP_MS = 3 * 60 * 1000;
+const DEBOUNCE_DM_MS    = 45 * 1000;
 const pendingBatches = new Map(); // chatId → { items: [...], timer }
 
 // Track unknown numbers already flagged to Josh this session (avoids repeat pings)
@@ -385,11 +386,11 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
   const isTeamMember   = !isOwner && senderRole.includes('Amalfi AI') && !senderRole.includes('this is you');
   const isPersonal     = !isOwner && senderRole === 'Personal';
   let promptFile;
-  if (isGroup)           promptFile = GROUP_SYSTEM_PROMPT_FILE;
-  else if (isOwner)      promptFile = SYSTEM_PROMPT_FILE;
-  else if (isTeamMember) promptFile = PERSONAL_DM_PROMPT_FILE;
-  else if (isPersonal)   promptFile = PERSONAL_ASSISTANT_PROMPT_FILE;
-  else                   promptFile = GROUP_SYSTEM_PROMPT_FILE;
+  // Telegram is the system-control channel for Josh — on WhatsApp he gets Sophia personal DM
+  if (isGroup)                       promptFile = GROUP_SYSTEM_PROMPT_FILE;
+  else if (isOwner || isTeamMember)  promptFile = PERSONAL_DM_PROMPT_FILE;
+  else if (isPersonal)               promptFile = PERSONAL_ASSISTANT_PROMPT_FILE;
+  else                               promptFile = GROUP_SYSTEM_PROMPT_FILE;
 
   let systemPrompt = '';
   try { systemPrompt = fs.readFileSync(promptFile, 'utf8'); } catch {
@@ -407,7 +408,7 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
     { pattern: /vant[ae]/i,                  context: path.join(WS, 'clients/vanta-studios/CONTEXT.md') },
     { pattern: /favlog|flair|favorite|logistics/i, context: path.join(WS, 'clients/favorite-flow-9637aff2/CONTEXT.md') },
     { pattern: /ascend|qms.guard|edith/i,    context: path.join(WS, 'clients/qms-guard/CONTEXT.md') },
-    { pattern: /ambassadex/i,               context: path.join(WS, 'clients/ambassadex/CONTEXT.md') },
+    { pattern: /ambassadex|project.ozayr/i,  context: path.join(WS, 'clients/ambassadex/CONTEXT.md') },
   ];
 
   // Build channel context block
@@ -463,7 +464,7 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
     : '';
 
   const speaker   = senderName !== fromNum ? senderName : (isOwner ? 'Josh' : 'User');
-  const respLabel = isOwner ? 'Claude' : 'Sophia';
+  const respLabel = 'Sophia';
 
   // If multiple messages arrived in the debounce window, show them all so Sophia has full context
   let batchPrefix = '';
@@ -803,7 +804,7 @@ client.on('message', async (msg) => {
       queue.push({ ...last, batchItems: batch.items });
       processNext();
     }
-  }, DEBOUNCE_MS);
+  }, isGroup ? DEBOUNCE_GROUP_MS : DEBOUNCE_DM_MS);
 });
 
 client.on('disconnected', (reason) => {
@@ -832,6 +833,29 @@ const apiServer = http.createServer(async (req, res) => {
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify(result, null, 2));
+    } catch (e) { res.writeHead(500); return res.end(JSON.stringify({ error: e.message })); }
+  }
+
+  // GET /join-and-read?invite=CODE — join a group via invite link, return recent messages
+  if (req.method === 'GET' && req.url.startsWith('/join-and-read')) {
+    if (!clientReady) { res.writeHead(503); return res.end(JSON.stringify({ error: 'not ready' })); }
+    try {
+      const inviteCode = new URL(req.url, 'http://localhost').searchParams.get('invite');
+      if (!inviteCode) { res.writeHead(400); return res.end(JSON.stringify({ error: 'invite param required' })); }
+      const chatId = await client.acceptInvite(inviteCode);
+      const chat = await client.getChatById(chatId);
+      const messages = await chat.fetchMessages({ limit: 50 });
+      const out = {
+        groupName: chat.name,
+        chatId,
+        messages: messages.map(m => ({
+          from: '+' + (m.author || m.from || '').replace(/@.+$/, ''),
+          body: m.body,
+          ts: new Date(m.timestamp * 1000).toISOString(),
+        })),
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(out, null, 2));
     } catch (e) { res.writeHead(500); return res.end(JSON.stringify({ error: e.message })); }
   }
 
