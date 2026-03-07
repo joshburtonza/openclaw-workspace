@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.amalfiai.whatsapp-wjs-gateway</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/node</string>
+        <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/whatsapp-wjs-gateway.cjs</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic</string>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/whatsapp-wjs-gateway.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/whatsapp-wjs-errors.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/henryburton</string>
+    </dict>
+</dict>
+</plist>
