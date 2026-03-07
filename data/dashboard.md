@@ -1,5 +1,5 @@
 # Amalfi AI — Data OS Dashboard
-_Generated: 2026-03-06 02:00 SAST_
+_Generated: 2026-03-07 02:00 SAST_
 
 ## MRR & Retainer
 - **MRR invoiced/paid (2026-03):** R0
@@ -8,13 +8,13 @@ _Generated: 2026-03-06 02:00 SAST_
 - **Missing payment:** Ascend LC, Amalfi AI (AOS), Race Technik, Favorite Logistics, Vanta Studios
 
 ## Email Pipeline
-- **Last 7d:** 4 sent, 6 awaiting approval, 0 rejected
+- **Last 7d:** 2 sent, 6 awaiting approval, 0 rejected
 - **Last 30d:** 21 sent, 6 awaiting, 21 rejected
 
 ## Alex Outreach
 - **Total leads:** 441
-- **Outreached:** 60
-- **Replied:** 1 (1.7%)
+- **Outreached:** 65
+- **Replied:** 2 (3.1%)
 - **Meetings booked:** 0 (0.0%)
 
 ## Delivery Health

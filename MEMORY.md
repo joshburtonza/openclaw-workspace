@@ -28,7 +28,7 @@ Full-stack business automation system running 24/7 on Mac as permanent launchd s
 - **Sophia CC protocol**: Always CC josh@amalfiai.com + salah@amalfiai.com on customer responses (visibility + backup)
 - **Sophia money rule**: Never discuss pricing directly → "I will run this by the team and we will come back to you within 24-48 hours"
 
-### Three Active Clients (Sophia CSM Manages)
+### Four Active Clients (Sophia CSM Manages)
 1. **Ascend LC** (riaan@ascendlc.co.za, andre@)
    - Project: QMS Guard (ISO 9001 compliance automation)
    - Status: Phase 1 ~70% complete, engaged in testing
@@ -43,6 +43,12 @@ Full-stack business automation system running 24/7 on Mac as permanent launchd s
    - Project: Automotive detailing platform (bookings, payments)
    - Status: Live system in use
    - Intro email sent ✅
+
+4. **Vanta Studios** (Marcus ai, ~Salt Studio, Liezl Stols — WhatsApp group)
+   - Project: Amalfi OS (OpenClaw stack) — Mac Mini infrastructure, content pipeline automation
+   - Status: Setup phase — Mac Mini acquisition pending, agent stack deployment to follow
+   - Contract: Setup R30k (R12k Mac Mini + R18k labour), retainer R5,500/month
+   - Onboarded ✅ (WhatsApp onboarding message sent 2026-03-06)
 
 ### Active Cron Jobs (All Enabled, Using Claude Code CLI)
 - **3am**: QMD Auto-Index (workspace indexing)
@@ -66,6 +72,8 @@ Full-stack business automation system running 24/7 on Mac as permanent launchd s
 7. **Be aggressive on timelines**: Built this entire system in days, not weeks. Speed matters.
 8. **Organization context matters**: Org ID verification ensures consistent Claude Code CLI behavior across all jobs.
 9. **NEVER do massive builds in one session**: Subscription has a 5h rolling quota. Long unbroken coding sessions with 30+ tool calls balloon context and burn the entire window, causing timeouts mid-build. ALWAYS break big tasks into 3-5 step chunks, reply with progress after each chunk, and let the next message start fresh context. Max ~15-20 tool calls before replying. Josh prefers 4 progress updates over radio silence + timeout.
+10. **Josh's WhatsApp style**: Integrate requests naturally (not separate bullets), use casual phrasing ("pop us" vs "let us know"), offer alternatives, tag specific people, use specific timeframes. Framework good, voice/naturalness needs refinement.
+11. **Supabase auth pattern**: service_role_key (`sb_secret_...`) is NOT a valid JWT. Use ANON_KEY for BOTH `apikey` and `Authorization: Bearer` headers.
 
 ### Immediate Blockers
 - **Cold outreach lead list**: Josh hasn't provided CSV yet (names, emails, companies, websites)
@@ -409,7 +417,15 @@ Sophia's 20-min cron now:
 - Estimated cost: R16,850/pm to run.
 - MVP timeline: 2-3 weeks.
 
-### Technical Learnings
+#
+### Puppeteer + LaunchAgent Architecture (2026-03-06)
+- fnb-api v1.0.11 bundles its OWN puppeteer v19.x (Chromium rev 1108766). Workspace puppeteer v24.38.0 is separate (rev 146.0.7680.31).
+- LaunchAgents don't inherit shell env. Must set env vars in BOTH .env.scheduler AND the plist EnvironmentVariables dict.
+- `PUPPETEER_EXECUTABLE_PATH` overrides Puppeteer's internal revision matching — the fix for cross-version Chromium mismatches.
+- fnb-api's FNB website selectors are stale as of March 2026. No npm update. May need fork or custom scraper.
+- Exit code 78 from launchd = EX_CONFIG (sysexits.h), not from the script itself.
+
+## Technical Learnings
 - Supabase REST API auth: use `apikey` header + `Authorization: Bearer` with service role key for server-side operations.
 - Memory file size limits: daily memory files over ~25,000 tokens (51k tokens / 3,212 lines) break the Read tool. Use `tail` via Bash as workaround.
 - Sophia legacy system prompt (`sophia-csm-system.md`) is superseded by new `prompts/sophia/instructions.md`.
