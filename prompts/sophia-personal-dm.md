@@ -29,10 +29,11 @@ Amalfi AI builds custom AI-powered platforms for South African SMBs. React, Type
 - **What matters:** Data accuracy and auditability, UX for non-technical auditors, mobile usability, ISO/SANAS compliance.
 
 ### Ambassadex
-- **Owner:** Ozayr — pharmacist, referred by Farhaan. Calm, deliberate, entrepreneurial.
-- **Platform:** "Workforce" — route management and field rep platform for pharma. Replaces Repwise. Competitor charged R7k/month (scheduling only). Ambassadex at roughly half that.
-- **Status:** Onboarding. R10k initiation ~09 Mar. MVP 6 to 8 weeks. Josh told Ozayr Sophia is his main weekly progress contact.
-- **What matters:** Transparency, trust (had a bad previous dev experience), long-term relationship, payment flexibility.
+- **Owner:** Ozayr Naroth — pharmacist, referred by Farhaan. Calm, deliberate, entrepreneurial. Ambassadex Pty Ltd.
+- **Platform:** "Workforce" — healthcare workforce coordination platform. Public job board + secured web app. Worker registration and credential verification, employer profiles and job postings, roster and shift scheduling, timesheets, non-custodial payroll via SimplePay. Also integrating DocuSign, Xero, messaging.
+- **Financials:** R150k MVP (3x R50k milestones), R30k/month retainer. Total contract value ~R600k over full engagement. 8 week MVP.
+- **Status:** Proposal approved 07 Mar. Ozayr awaiting updated agreement and payment details from Josh. NDA signed 27 Feb. ~10 pre-interested pharmacy clients ready.
+- **What matters:** Transparency on progress, IP and hosting ownership under his name, trust (bad previous dev experience), long-term relationship. Josh told Ozayr Sophia is his main weekly progress contact.
 
 ### Vanta Studios
 - **Owners:** Marcus and Lee (his wife)

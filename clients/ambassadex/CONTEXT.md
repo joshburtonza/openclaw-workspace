@@ -1,44 +1,63 @@
 # Ambassadex
 
 ## Client
-- **Primary contact:** Ozayr (+27649021396) — WhatsApp group: AMBASSADEX
-- **Background:** Pharmacist since 2018, locumed weekends. Spotted a gap in the pharma rep sector and is building his own SaaS to replace it. Entrepreneurial, calm, deliberate. Referred by Farhaan.
+- **Primary contact:** Ozayr Ismail Naroth (+27649021396) — WhatsApp group: Project Ozayr
+- **Company:** Ambassadex Pty Ltd (reg 2024/627628/07)
+- **Background:** Pharmacist since 2018, locumed weekends. Building a healthcare workforce platform. Entrepreneurial, calm, deliberate. Referred by Farhaan.
 
 ## What we are building — "Workforce"
-A workforce and route management platform for pharma field reps. Reps use it in the field to manage:
-- Route planners
-- Customer base (pharmacies)
-- Product orders with relevant wholesalers
-- Reporting and activity tracking
+A healthcare workforce coordination platform. Two layers:
 
-This replaces **Repwise** — the system Ozayr currently uses and wants to cancel. The competitor Ozayr benchmarked against was charging R7k/month just for scheduling. Ambassadex will come in at roughly half that.
+**Public website** — job board and employer-facing landing site
 
-## Second project (future — do not push yet)
-Ozayr mentioned a second, larger project: a **procurement platform** for pharma — more complex, CRM-like, manages the full supply chain for his reps. Not documented yet, still in his head. He will scope it out properly before bringing it to us.
+**Secured web app** — full workforce management system covering:
+- Worker registration and credential verification (POPIA-compliant, verification-first)
+- Employer profiles and job postings
+- Roster and shift scheduling
+- Clock-in/clock-out and timesheets
+- Non-custodial payroll via SimplePay integration
 
-## Financial status (as of 07 Mar 2026)
-- **Total build cost:** ~R600k
-- **Initiation fee:** R10k (Ozayr targeting Monday 09 Mar)
-- **First payment target:** R50k by end of March
-- **Balance:** Flexible — tied to availability of funds from previous developer refund (approx 14 working days, started ~07 Mar)
-- **Payment model:** Initiation now, balance by MVP handover (8 weeks) with flexibility if funds delayed
-- **Josh will send:** Bank details + engagement letter on payment receipt
+**Integrations planned:** SimplePay (payroll), DocuSign (contracts), Xero (accounting), messaging
+
+This is NOT a pharma field rep route management tool. This is a healthcare sector workforce platform built for pharmacy staffing and workforce coordination.
+
+## Legal
+- **NDA signed:** 27 Feb 2026 — Ozayr Ismail Naroth (Ambassadex Pty Ltd) and Salah ElBaba (Sajonix Pty Ltd T/A Amalfi AI, reg 2025/828185/07)
+- **IP ownership:** Transfers to Ambassadex on final payment
+
+## Financials (as of 07 Mar 2026)
+- **MVP total:** R150,000 (3 milestones of R50k each)
+  - Milestone 1 (R50k): Discovery, setup, public site, registration/verification
+  - Milestone 2 (R50k): Core build — profiles, job postings, roster/scheduling
+  - Milestone 3 (R50k): Clock-in/timesheets, integrations, final delivery
+- **Post-MVP retainer:** R30,000/month
+- **Total estimated contract value:** ~R600k (MVP + ~15 months retainer)
+- **Agreement + payment details:** Josh preparing (as of 07 Mar)
 
 ## Timeline
-- **MVP:** 6 to 8 weeks — 8 weeks preferred, 6 possible if needed
-- **Access:** Ozayr gets early access after week 1 to start testing
-- **Pre-sales strategy:** Ozayr may do upfront sales to early clients — we give them a basic preview build so they can see progress
+- **MVP:** 8 weeks from project kick-off
+- **Early access:** Ozayr gets preview build to show ~10 pre-interested clients
+
+## Current Status (07 Mar 2026)
+- Proposal approved by Ozayr — happy with phased structure
+- Ozayr awaiting updated agreement + payment details from Josh
+- Pending questions Ozayr raised (Josh to address in the agreement doc):
+  1. Will the source code repo be under the Ambassadex GitHub org with Amalfi AI developer access?
+  2. Will hosting/cloud be under Ambassadex ownership with full admin access from their side?
+  3. What third-party services (SimplePay, DocuSign, Xero, messaging) and what are the ongoing monthly costs?
+  4. What is the "Project Ozayr" WhatsApp group for?
 
 ## What matters to Ozayr
-- Clear ROI — his clients will pay ~R3.5k/month each. 4 clients covers his costs.
-- Transparency on development progress — he doesn't want a repeat of his previous developer experience
-- Flexibility on payment — he's not asking for a discount, just breathing room
-- Long-term relationship — mentioned he will need ongoing support well beyond MVP
-- Does not want to rush for the sake of it — quality over speed
+- Transparency on development progress — bad previous developer experience, trust is being built carefully
+- Ownership and control — wants the IP, the repo, the hosting in his name
+- Flexibility on payment timing (not a discount request — just breathing room)
+- Long-term relationship — ongoing support well beyond MVP
+- Does not rush for the sake of it — quality over speed
 
-## Sophia's role (as told to Ozayr by Josh in the onboarding call)
-Josh explicitly told Ozayr that Sophia will be his main point of contact for:
+## Sophia's role (as told to Ozayr by Josh)
+Sophia is Ozayr's main point of contact for:
 - Weekly progress updates (what was shipped, what's next)
 - Day-to-day queries about the project
 - Tracking development against timeline
+
 Ozayr knows Sophia is an AI agent. He is comfortable with this.

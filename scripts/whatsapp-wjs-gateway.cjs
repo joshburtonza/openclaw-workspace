@@ -35,6 +35,8 @@ try {
 } catch { /* ignore */ }
 
 const OWNER_NUMBER            = env.WA_OWNER_NUMBER || process.env.WA_OWNER_NUMBER || '';
+const SUPABASE_URL            = env.AOS_SUPABASE_URL || 'https://afmpbtynucpbglwtbfuz.supabase.co';
+const SUPABASE_KEY            = env.SUPABASE_SERVICE_ROLE_KEY || '';
 const SYSTEM_PROMPT_FILE      = path.join(WS, 'prompts/telegram-claude-system.md');
 const GROUP_SYSTEM_PROMPT_FILE = path.join(WS, 'prompts/sophia-whatsapp-group.md');
 const PERSONAL_DM_PROMPT_FILE        = path.join(WS, 'prompts/sophia-personal-dm.md');
@@ -499,6 +501,17 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
   // Sophia signals she has nothing to add by replying SKIP
   if (response.trim() === 'SKIP') {
     log('Sophia chose not to respond (SKIP)');
+    saveToSupabase({
+      chatId:      msg.from,
+      fromNum,
+      senderName,
+      isGroup,
+      groupName:   isGroup ? detectedGroupName : null,
+      clientSlug:  resolveSlug(isGroup ? detectedGroupName : null, fromNum),
+      inboundText: userText,
+      outboundText: null,
+      skipped:     true,
+    });
     return;
   }
 
@@ -522,6 +535,19 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
 
   if (histFile) appendHistory(respLabel, response, histFile);
   if (groupHistFile) appendGroupHistory('Sophia', response, groupHistFile);
+
+  // Persist exchange to Supabase
+  saveToSupabase({
+    chatId:      msg.from,
+    fromNum,
+    senderName,
+    isGroup,
+    groupName:   isGroup ? detectedGroupName : null,
+    clientSlug:  resolveSlug(isGroup ? detectedGroupName : null, fromNum),
+    inboundText: userText,
+    outboundText: response,
+    skipped:     false,
+  });
 
   // Adaptive memory — async background update after each exchange
   updatePersonMemory(senderName, userText, response);
@@ -555,6 +581,62 @@ function chunkText(text, maxLen) {
   }
   if (current) chunks.push(current.trim());
   return chunks;
+}
+
+// ── Supabase storage ──────────────────────────────────────────────────────────
+
+// Resolve group name to client slug for cross-referencing
+const SLUG_MAP = [
+  { pattern: /race.technik/i,              slug: 'race_technik' },
+  { pattern: /vant[ae]/i,                  slug: 'vanta_studios' },
+  { pattern: /favlog|flair|favorite|logistics/i, slug: 'favorite_logistics' },
+  { pattern: /ascend|qms.guard|edith/i,    slug: 'ascend_lc' },
+  { pattern: /ambassadex|project.ozayr/i,  slug: 'ambassadex' },
+];
+
+function resolveSlug(groupName, fromNum) {
+  if (groupName) {
+    const m = SLUG_MAP.find(x => x.pattern.test(groupName));
+    if (m) return m.slug;
+  }
+  // For DMs, try to find the slug by the sender's role
+  try {
+    const c = cachedContacts[fromNum] || cachedContacts[`+${fromNum.replace(/^\+/, '')}`];
+    if (c?.slug) return c.slug;
+  } catch { /* */ }
+  return null;
+}
+
+// Save a WhatsApp exchange to Supabase (fire-and-forget — never throws)
+function saveToSupabase(params) {
+  if (!SUPABASE_KEY) return;
+  const body = JSON.stringify({
+    chat_id:      params.chatId,
+    from_number:  params.fromNum,
+    sender_name:  params.senderName,
+    is_group:     params.isGroup,
+    group_name:   params.groupName || null,
+    client_slug:  params.clientSlug || null,
+    inbound_text: params.inboundText,
+    outbound_text: params.outboundText || null,
+    skipped:      params.skipped || false,
+  });
+  const url = new URL(`${SUPABASE_URL}/rest/v1/whatsapp_messages`);
+  const opts = {
+    hostname: url.hostname,
+    path:     url.pathname,
+    method:   'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'apikey':        SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Prefer':        'return=minimal',
+    },
+  };
+  const req = https.request(opts, () => {});
+  req.on('error', e => log(`Supabase save error: ${e.message}`));
+  req.write(body);
+  req.end();
 }
 
 // ── Media helpers ─────────────────────────────────────────────────────────────
