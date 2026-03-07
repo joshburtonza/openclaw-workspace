@@ -340,6 +340,69 @@ async function processNext() {
   processNext();
 }
 
+
+// ── Reminder extraction ───────────────────────────────────────────────────────
+const REMINDERS_FILE = path.join(WS, 'tmp/reminders.json');
+
+function loadReminders() {
+  try { return JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8')); } catch { return []; }
+}
+
+function saveReminders(list) {
+  try { fs.writeFileSync(REMINDERS_FILE, JSON.stringify(list, null, 2)); } catch { /* */ }
+}
+
+function extractAndSaveReminder(fromNum, senderName, userText, sophiaReply) {
+  // Quick pre-check — only bother if message smells like a reminder request
+  const reminderKeywords = /remind|reminder|don.t forget|follow.?up|check.?in|ping me|alert me/i;
+  if (!reminderKeywords.test(userText)) return;
+
+  // Async — don't block the main flow
+  (async () => {
+    try {
+      const now = new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' });
+      const prompt = `The user sent this message: "${userText}"
+Sophia replied: "${sophiaReply}"
+Current date/time (SAST): ${now}
+
+If the user is asking to be reminded of something, extract:
+- "message": what to remind them of (short, natural — as Sophia would say it)
+- "fireAt": ISO 8601 datetime in UTC when to send the reminder
+- "found": true
+
+If no reminder was set, return {"found": false}
+
+Output only JSON.`;
+
+      const result = await runGPT(
+        'You are a reminder extraction assistant. Parse reminder requests and output JSON only.',
+        prompt, 'gpt-4o-mini'
+      );
+      if (!result) return;
+
+      const clean = result.trim().replace(/^```json|```$/g, '').trim();
+      const parsed = JSON.parse(clean);
+      if (!parsed.found || !parsed.fireAt || !parsed.message) return;
+
+      const reminders = loadReminders();
+      reminders.push({
+        id: Date.now().toString(),
+        to: fromNum,
+        name: senderName,
+        message: parsed.message,
+        fireAt: parsed.fireAt,
+        fired: false,
+        createdAt: new Date().toISOString(),
+      });
+      saveReminders(reminders);
+      log(`Reminder saved for ${senderName}: "${parsed.message}" at ${parsed.fireAt}`);
+    } catch (e) {
+      log(`Reminder extraction error: ${e.message}`);
+    }
+  })();
+}
+// ── End reminder extraction ───────────────────────────────────────────────────
+
 async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
   let userText = msg.body || '';
   let mediaNote = '';  // injected into prompt to tell Sophia what kind of media was received
@@ -506,12 +569,25 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
   // Groups → Sophia CSM
   const isTeamMember   = !isOwner && senderRole.includes('Amalfi AI') && !senderRole.includes('this is you');
   const isPersonal     = !isOwner && senderRole === 'Personal';
+  const isTrialUser    = !isOwner && senderRole === 'Trial';
+
+  // Trial expiry check — hard cut-off per contact's trialEnd field
+  if (isTrialUser && !isGroup) {
+    const trialEnd = contactEntry?.trialEnd ? new Date(contactEntry.trialEnd + 'T23:59:59+02:00') : null;
+    if (trialEnd && new Date() > trialEnd) {
+      log(`Trial expired for ${senderName} (${fromNum}) — sending expiry message`);
+      const expiredMsg = `Hey ${senderName}! Just letting you know your free trial with me has come to an end. It was great getting to know you! If you want to keep going, just reach out to Josh at Amalfi AI and he will sort you out. Hope I was useful!`;
+      try { await client.sendMessage(msg.from, expiredMsg); } catch (e) { log(`Trial expiry send failed: ${e.message}`); }
+      return;
+    }
+  }
+
   let promptFile;
   // Telegram is the system-control channel for Josh — on WhatsApp he gets Sophia personal DM
-  if (isGroup)                       promptFile = GROUP_SYSTEM_PROMPT_FILE;
-  else if (isOwner || isTeamMember)  promptFile = PERSONAL_DM_PROMPT_FILE;
-  else if (isPersonal)               promptFile = PERSONAL_ASSISTANT_PROMPT_FILE;
-  else                               promptFile = GROUP_SYSTEM_PROMPT_FILE;
+  if (isGroup)                            promptFile = GROUP_SYSTEM_PROMPT_FILE;
+  else if (isOwner || isTeamMember)       promptFile = PERSONAL_DM_PROMPT_FILE;
+  else if (isPersonal || isTrialUser)     promptFile = PERSONAL_ASSISTANT_PROMPT_FILE;
+  else                                    promptFile = GROUP_SYSTEM_PROMPT_FILE;
 
   let systemPrompt = '';
   try { systemPrompt = fs.readFileSync(promptFile, 'utf8'); } catch {
@@ -560,14 +636,21 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
   } else if (isUnknown) {
     channelLine = `\nChannel: WhatsApp DM\nSender: (unrecognised contact — you do not know who this is yet)\n\nIMPORTANT: Do NOT ask who they are. Do NOT say you don't have their number saved. Respond warmly and naturally to the content of their message without using any name. Keep it short. Josh has been alerted separately.\n`;
   } else {
-    channelLine = `\nChannel: WhatsApp DM\nSender: ${senderName} (${fromNum})${senderRole ? ` — ${senderRole}` : ''}\n`;
+    // Trial users: don't expose their role label to the AI
+    const roleDisplay = (isTrialUser || senderRole === 'Personal') ? '' : (senderRole ? ` — ${senderRole}` : '');
+    channelLine = `\nChannel: WhatsApp DM\nSender: ${senderName} (${fromNum})${roleDisplay}\n`;
   }
 
   // Memory, business context, and per-user profile
+  // Trial users get isolated context — no client data or internal business state
   let longTermMemory = '';
-  try { longTermMemory = fs.readFileSync(path.join(WS, 'memory/MEMORY.md'), 'utf8'); } catch { /* */ }
+  if (!isTrialUser) {
+    try { longTermMemory = fs.readFileSync(path.join(WS, 'memory/MEMORY.md'), 'utf8'); } catch { /* */ }
+  }
   let currentState = '';
-  try { currentState = fs.readFileSync(path.join(WS, 'CURRENT_STATE.md'), 'utf8'); } catch { /* */ }
+  if (!isTrialUser) {
+    try { currentState = fs.readFileSync(path.join(WS, 'CURRENT_STATE.md'), 'utf8'); } catch { /* */ }
+  }
 
   let userProfile = '';
   const safeNameKey = senderName.toLowerCase().replace(/[^a-z0-9]/g, '-');
@@ -651,6 +734,9 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
     return;
   }
 
+  // Strip surrounding quotation marks GPT-4o sometimes wraps responses in
+  response = response.trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '').trim();
+
   // Sophia signals she has nothing to add by replying SKIP
   if (response.trim() === 'SKIP') {
     log('Sophia chose not to respond (SKIP)');
@@ -672,10 +758,10 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
   const violations = findViolations(response);
   if (violations.length > 0) {
     log(`Self-correcting (${violations.length} violation${violations.length > 1 ? 's' : ''}): ${violations.join('; ')}`);
-    const fixPrompt = `You wrote this WhatsApp message:\n\n"${response}"\n\nFix these specific problems:\n${violations.map(v => `- ${v}`).join('\n')}\n\nOutput only the corrected message, nothing else.`;
-    const corrected = await runGPT('You are a WhatsApp message editor. Fix issues in messages exactly as instructed. Output only the corrected message.', fixPrompt, 'gpt-4o-mini');
+    const fixPrompt = `You wrote this WhatsApp message:\n\n${response}\n\nFix these specific problems:\n${violations.map(v => `- ${v}`).join('\n')}\n\nOutput only the corrected message with no surrounding quotes.`;
+    const corrected = await runGPT('You are a WhatsApp message editor. Fix issues in messages exactly as instructed. Output only the corrected message with no surrounding quotes.', fixPrompt, 'gpt-4o-mini');
     if (corrected && corrected.trim() !== 'SKIP') {
-      response = corrected.trim();
+      response = corrected.trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '').trim();
       log(`Corrected: ${response.slice(0, 80)}`);
     }
   }
@@ -707,6 +793,9 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
 
   // Adaptive memory — async background update after each exchange
   updatePersonMemory(senderName, userText, response);
+
+  // Reminder extraction — detect if user set a reminder, persist it
+  extractAndSaveReminder(fromNum, senderName, userText, response);
 
   // Daily log
   try {
@@ -878,13 +967,14 @@ const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
   pairWithPhoneNumber: { phoneNumber: '27645066729' },
   webVersionCache: {
-    type: 'remote',
-    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1023554069-alpha.html',
+    type: 'local',
+    path: '/Users/henryburton/.openclaw/workspace-anthropic/tmp/wwebjs_cache/',
   },
   puppeteer: {
     headless: true,
     executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    protocolTimeout: 120000,
   },
 });
 
