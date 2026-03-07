@@ -53,6 +53,9 @@ const pendingBatches = new Map(); // chatId → { items: [...], timer }
 // Track unknown numbers already flagged to Josh this session (avoids repeat pings)
 const unknownNotified = new Set();
 
+// Rate limit — track last Sophia reply time per chat (chatId → timestamp ms)
+const sophiaLastReply = new Map();
+
 // LID → real phone number map (persisted to disk, built automatically)
 let lidMap = {};
 try { lidMap = JSON.parse(fs.readFileSync(LID_MAP_FILE, 'utf8')); } catch { /* first run */ }
@@ -220,6 +223,77 @@ function findViolations(text) {
   return v;
 }
 
+// ── Stage-1 classifier: SKIP or RESPOND (cheap, fast, no generation) ──────────
+// Only called for group messages — DMs go straight to generation.
+// Uses gpt-4o-mini at temperature 0, max 5 tokens — purely a gate decision.
+function classifyMessage({ groupName, senderName, senderRole, recentHistory, messageText }) {
+  const CLASSIFIER_SYSTEM =
+`You are a response gatekeeper for Sophia, an AI WhatsApp CSM at Amalfi AI.
+Decide if Sophia should respond to this group message.
+Output only one word: RESPOND or SKIP.
+
+SKIP when:
+- An Amalfi AI team member (Josh, Salah, Masara) posts any update or statement
+- The message is an acknowledgement: thank you, no problem, ok, sounds good, waiting, got it, sure, perfect, noted, done
+- Two people are mid-conversation and Sophia is not involved
+- The message is a reaction, emoji, or casual closer
+- No question is being asked and Sophia would just be adding noise
+- Recent messages already cover what Sophia might say
+
+RESPOND when:
+- A client directly asks a question about the project, timeline, or features
+- A client expresses frustration or concern that needs a CSM voice
+- Sophia is explicitly named or addressed
+- No one else in the thread can or will answer what the client needs`;
+
+  const classifyUser =
+`Group: ${groupName}
+Sender: ${senderName}${senderRole ? ` (${senderRole})` : ''}
+Recent messages:
+${recentHistory || '(no history)'}
+
+New message: ${messageText}`;
+
+  const key = env.OPENAI_API_KEY || '';
+  if (!key) return Promise.resolve('RESPOND'); // fail open if no key
+
+  const payload = Buffer.from(JSON.stringify({
+    model:       'gpt-4o-mini',
+    messages:    [
+      { role: 'system', content: CLASSIFIER_SYSTEM },
+      { role: 'user',   content: classifyUser },
+    ],
+    max_tokens:  5,
+    temperature: 0,
+  }));
+
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'api.openai.com',
+      path:     '/v1/chat/completions',
+      method:   'POST',
+      headers: {
+        'Authorization':  `Bearer ${key}`,
+        'Content-Type':   'application/json',
+        'Content-Length': payload.length,
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', d => { data += d; });
+      res.on('end', () => {
+        try {
+          const r = JSON.parse(data);
+          const raw = r?.choices?.[0]?.message?.content?.trim().toUpperCase() || 'RESPOND';
+          resolve(raw.startsWith('SKIP') ? 'SKIP' : 'RESPOND');
+        } catch { resolve('RESPOND'); }
+      });
+    });
+    req.on('error', () => resolve('RESPOND')); // fail open on network error
+    req.write(payload);
+    req.end();
+  });
+}
+
 // ── Adaptive per-person memory (runs async after each exchange) ────────────────
 function updatePersonMemory(name, userMessage, sophiaReply) {
   if (!name || name === 'User') return;
@@ -352,6 +426,51 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
     appendGroupHistory(resolveName(fromNum), userText + (quotedNote || ''), groupHistFile);
   }
   log(`Message from ${fromNum}${isGroup ? ` (group: "${detectedGroupName}")` : ''}: ${userText.slice(0, 80)}`);
+
+  // ── CODE-LEVEL PRE-FILTER — deterministic, no AI ─────────────────────────────
+  // These rules are hard truths. If they fire, Sophia is silent. No API call made.
+  if (isGroup) {
+    const _pfEntry = contacts[fromNum] || contacts[`+${fromNum.replace(/^\+/, '')}`] || null;
+    const _pfRole  = _pfEntry?.role || '';
+    const _pfName  = _pfEntry?.name || fromNum;
+    const _pfIsTeam = isOwner || _pfRole.includes('Amalfi AI');
+
+    // Rule 1: Any Amalfi AI team member (Josh, Salah, Masara) posting in a client group.
+    // Their messages are for the client — Sophia is not part of that exchange.
+    if (_pfIsTeam) {
+      log(`Pre-filter SKIP: team member "${_pfName}" in group "${detectedGroupName}"`);
+      return;
+    }
+
+    // Rule 2: Closure / acknowledgement phrases — thread is wrapping up, not opening.
+    const CLOSURE_RE = /^(no[\s-]?problem|np|ok(ay)?|sounds good|perfect|great|sure|noted|thanks?(\s+a\s+(lot|million))?|thank\s+you|thx|will\s+do|on\s+it|done|waiting(\s+for\s+(the|that)\s+\w+)?|got\s+it|understood|roger|copy\s+that|lekker|sharp|cool|nice)[.!\s]*[\p{Emoji}\s]*$/iu;
+    if (CLOSURE_RE.test(userText.trim())) {
+      log(`Pre-filter SKIP: closure phrase "${userText.slice(0, 40)}" from "${_pfName}"`);
+      return;
+    }
+
+    // Rule 3: Very short non-question (under 12 chars, no "?") — emoji, "👍", "lol", etc.
+    if (userText.trim().length < 12 && !userText.includes('?')) {
+      log(`Pre-filter SKIP: short non-question "${userText.slice(0, 40)}" from "${_pfName}"`);
+      return;
+    }
+
+    // Rule 4: Quoted reply to a team member — that is their private thread in the group.
+    if (quotedNote && /\[This message is a reply to (Josh|Salah|Masara)/i.test(quotedNote)) {
+      log(`Pre-filter SKIP: reply to team member thread from "${_pfName}"`);
+      return;
+    }
+
+    // Rule 5: Rate limit — if Sophia replied in this chat within the last 90 seconds,
+    // stay quiet unless this message contains a direct question.
+    const lastReplyTs = sophiaLastReply.get(msg.from);
+    if (lastReplyTs && (Date.now() - lastReplyTs) < 90_000 && !userText.includes('?')) {
+      const ago = Math.round((Date.now() - lastReplyTs) / 1000);
+      log(`Pre-filter SKIP: rate limit (${ago}s since last reply) in "${detectedGroupName}"`);
+      return;
+    }
+  }
+  // ── End pre-filter ────────────────────────────────────────────────────────────
 
   // Build time string
   const today = new Date().toLocaleString('en-ZA', {
@@ -487,11 +606,45 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
 
   if (histFile) appendHistory(speaker, userText, histFile);
 
+  // ── Stage 1: Classify (groups only) — SKIP or RESPOND ────────────────────────
+  // Cheap gpt-4o-mini gate. Keeps the expensive generation stage out of conversations
+  // that don't need Sophia. DMs skip straight to generation.
+  if (isGroup) {
+    const recentForClassifier = groupHistFile
+      ? loadGroupHistory(groupHistFile, 4).map(e => `${e.name}: ${e.text}`).join('\n')
+      : '';
+    const classification = await classifyMessage({
+      groupName:     detectedGroupName,
+      senderName,
+      senderRole,
+      recentHistory: recentForClassifier,
+      messageText:   userText,
+    });
+    if (classification === 'SKIP') {
+      log(`Classifier SKIP: "${userText.slice(0, 60)}" in "${detectedGroupName}"`);
+      saveToSupabase({
+        chatId: msg.from, fromNum, senderName, isGroup,
+        groupName: detectedGroupName,
+        clientSlug: resolveSlug(detectedGroupName, fromNum),
+        inboundText: userText, outboundText: null, skipped: true,
+      });
+      return;
+    }
+    log(`Classifier RESPOND: "${userText.slice(0, 60)}"`);
+  }
+  // ── End Stage 1 ───────────────────────────────────────────────────────────────
+
+  // Sender lock — hard constraint prepended to system prompt.
+  // GPT-4o should address the actual sender, not the client whose name fills the context.
+  const senderConstraint = `CRITICAL RULE: The message you are replying to was sent by ${senderName}. Address ${senderName} in your response. Do not open by addressing anyone else by name.\n\n`;
+  const lockedSystemPrompt = senderConstraint + systemPrompt;
+
   // Show typing indicator
   try { await msg.getChat().then(c => c.sendStateTyping()); } catch { /* */ }
 
-  log('Running GPT-4o...');
-  let response = await runGPT(systemPrompt, userContent);
+  // ── Stage 2: Generate ─────────────────────────────────────────────────────────
+  log('Running GPT-4o (Stage 2)...');
+  let response = await runGPT(lockedSystemPrompt, userContent);
 
   if (!response) {
     log('No response from GPT-4o');
@@ -532,6 +685,9 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
   for (const chunk of chunks) {
     try { await msg.reply(chunk); } catch (e) { log(`Send error: ${e.message}`); }
   }
+
+  // Update rate-limit tracker
+  sophiaLastReply.set(msg.from, Date.now());
 
   if (histFile) appendHistory(respLabel, response, histFile);
   if (groupHistFile) appendGroupHistory('Sophia', response, groupHistFile);
