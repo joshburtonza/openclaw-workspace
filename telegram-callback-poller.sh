@@ -50,6 +50,8 @@ TG_API="https://api.telegram.org/bot${BOT_TOKEN}"
 # error-monitor detect if we're stuck (stale > 15 min = alert).
 HEARTBEAT_FILE="/Users/henryburton/.openclaw/tmp/telegram-poller-heartbeat"
 
+CONSECUTIVE_ERRORS=0
+
 while true; do
 
   # Touch heartbeat every cycle so monitoring can detect stalls
@@ -89,12 +91,26 @@ while true; do
     if [[ "$ERR_CODE" == "409" ]]; then
       # Another instance is polling — back off and let it finish
       sleep 10
+    elif [[ "$ERR_CODE" == "429" ]]; then
+      # Rate-limited — respect Telegram's retry_after value
+      RETRY_AFTER=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('parameters',{}).get('retry_after',10))" 2>/dev/null || echo "10")
+      echo "getUpdates 429 rate-limited — sleeping ${RETRY_AFTER}s" >&2
+      sleep "$RETRY_AFTER"
+    elif [[ "$ERR_CODE" -ge 500 ]] 2>/dev/null; then
+      # Server error — exponential backoff capped at 80s
+      CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
+      BACKOFF=$((5 * (1 << (CONSECUTIVE_ERRORS > 4 ? 4 : CONSECUTIVE_ERRORS))))
+      echo "getUpdates error $ERR_CODE (attempt $CONSECUTIVE_ERRORS) — sleeping ${BACKOFF}s: $(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('description','unknown'))" 2>/dev/null)" >&2
+      sleep "$BACKOFF"
     else
       echo "getUpdates error $ERR_CODE: $(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('description','unknown'))" 2>/dev/null)" >&2
       sleep 5
     fi
     continue
   fi
+
+  # Successful poll — reset error counter
+  CONSECUTIVE_ERRORS=0
 
   # ── Write raw updates to disk immediately — never lose a message ───────────
   RAW_LOG="/Users/henryburton/.openclaw/workspace-anthropic/out/telegram-raw-updates.jsonl"

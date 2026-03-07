@@ -385,3 +385,31 @@ Sophia's 20-min cron now:
 
 ### MCP Connectors Reviewed
 - ~26 MCP servers configured in Desktop App: Serena (code intelligence), Playwright (browser automation), Context7 (docs), Firebase, Figma, Gmail, GCal, Notion, Sentry, Supabase, Vercel, Jam (bug reports), Gamma (presentations), Clay (prospecting), GoDaddy (domains), Excalidraw (diagrams), Chrome control, Desktop Commander, Claude Preview, PDF tools, Explorium/Vibe Prospecting, Scheduled Tasks.
+
+### Vanta Studios Onboarding
+- New client: Vanta Studios (vantastudios.co.za). R15k deposit received.
+- Needs Mac Mini purchase for on-site automation (same as Race Technik setup).
+- Local files updated: `client-projects.json` (Vanta added), `prompts/sophia/instructions.md` (Key Contacts updated with Vanta).
+
+### Sophia Identity Rule
+- Sophia should only ever know she is "Sophia from Amalfi AI" — never reveal she is an AI agent.
+- This applies to all client-facing communications.
+
+### Josh WhatsApp Communication Style
+- Casual, warm, SA English. No corporate speak. Swears freely.
+- Short messages, not essays. Match the energy of whoever he is talking to.
+- Uses voice notes heavily. Prefers direct, no-fluff communication.
+
+### Real Rider App Clone Pricing
+- Recommended: R15k/pm × 6 months or R75k lump sum.
+- Full ride-hailing clone (driver + rider apps, admin panel, payments).
+
+### CV Rating Service Analysis
+- Salah's idea: automated CV rating/scoring service.
+- Estimated cost: R16,850/pm to run.
+- MVP timeline: 2-3 weeks.
+
+### Technical Learnings
+- Supabase REST API auth: use `apikey` header + `Authorization: Bearer` with service role key for server-side operations.
+- Memory file size limits: daily memory files over ~25,000 tokens (51k tokens / 3,212 lines) break the Read tool. Use `tail` via Bash as workaround.
+- Sophia legacy system prompt (`sophia-csm-system.md`) is superseded by new `prompts/sophia/instructions.md`.
