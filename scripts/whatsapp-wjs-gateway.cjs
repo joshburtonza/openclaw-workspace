@@ -13,7 +13,7 @@
 
 'use strict';
 
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode    = require('qrcode-terminal');
 const fs        = require('fs');
 const path      = require('path');
@@ -37,7 +37,6 @@ try {
 const OWNER_NUMBER            = env.WA_OWNER_NUMBER || process.env.WA_OWNER_NUMBER || '';
 const SUPABASE_URL            = env.AOS_SUPABASE_URL || 'https://afmpbtynucpbglwtbfuz.supabase.co';
 const SUPABASE_KEY            = env.SUPABASE_SERVICE_ROLE_KEY || '';
-const SYSTEM_PROMPT_FILE      = path.join(WS, 'prompts/telegram-claude-system.md');
 const GROUP_SYSTEM_PROMPT_FILE = path.join(WS, 'prompts/sophia-whatsapp-group.md');
 const PERSONAL_DM_PROMPT_FILE        = path.join(WS, 'prompts/sophia-personal-dm.md');
 const PERSONAL_ASSISTANT_PROMPT_FILE = path.join(WS, 'prompts/sophia-personal-assistant.md');
@@ -143,7 +142,7 @@ function runClaude(promptText, model = 'claude-sonnet-4-6') {
     const childEnv = { ...process.env };
     delete childEnv.CLAUDECODE;
     const result = spawnSync(
-      'claude',
+      '/Users/henryburton/.openclaw/bin/claude-gated',
       ['--print', '--model', model, '--dangerously-skip-permissions'],
       {
         input:     fs.readFileSync(tmpFile),
@@ -207,6 +206,23 @@ function runGPT(systemContent, userContent, model = 'gpt-4o') {
     req.write(payload);
     req.end();
   });
+}
+
+// ── Telegram alert (fire-and-forget) ───────────────────────────────────────────
+function notifyTelegram(text) {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  const chatId = env.TELEGRAM_JOSH_CHAT_ID;
+  if (!token || !chatId) return;
+  const payload = JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' });
+  const req = https.request({
+    hostname: 'api.telegram.org',
+    path: `/bot${token}/sendMessage`,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+  });
+  req.on('error', (e) => log(`Telegram notify error: ${e.message}`));
+  req.write(payload);
+  req.end();
 }
 
 // ── Self-correction validator ──────────────────────────────────────────────────
@@ -469,6 +485,189 @@ Output only JSON.`;
   })();
 }
 // ── End reminder extraction ───────────────────────────────────────────────────
+
+// ── Owner action execution ────────────────────────────────────────────────────
+// Called only for Josh (isOwner). Detects executable instructions in his message
+// and actually runs them BEFORE generating Sophia's response so she confirms in past tense.
+async function runCalendarScript(...args) {
+  const CALENDAR_SCRIPT = path.join(WS, 'scripts/sophia-calendar.sh');
+  const childEnv = { ...process.env, HOME: '/Users/henryburton', PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin' };
+  const result = spawnSync('/bin/bash', [CALENDAR_SCRIPT, ...args], {
+    env: childEnv, timeout: 30_000, encoding: 'utf8',
+  });
+  const out = (result.stdout || '').trim();
+  if (!out) return { ok: false, error: 'No output from calendar script' };
+  try { return JSON.parse(out); } catch { return { ok: false, error: out }; }
+}
+
+async function extractAndExecuteOwnerActions(userText, contacts) {
+  const actionKeywords = /\b(send|message|text|whatsapp|dm|reach\s+out|create\s+task|add\s+task|make\s+a\s+task|introduce|nudge|follow.?up|schedule|calendar|meeting|call|book|event|meet|cancel|reschedule|move|postpone|what.?s on|my calendar|today.?s agenda|check my)\b/i;
+  if (!actionKeywords.test(userText)) return null;
+
+  const today = new Date().toLocaleDateString('en-ZA', { timeZone: 'Africa/Johannesburg' });
+  const contactsList = Object.entries(contacts)
+    .map(([num, v]) => `${v.name} (${num})`)
+    .join(', ');
+
+  const extractPrompt = `Josh sent this instruction to Sophia (his AI WhatsApp agent): "${userText}"
+
+Today's date: ${today} (SAST)
+Known contacts: ${contactsList}
+
+Extract any executable actions. Output a JSON array only, or [] if none.
+
+Supported action types:
+- { "type": "send_whatsapp", "to": "+27XXXXXXXXX", "name": "PersonName", "briefing": "detailed description of what the message should say, the tone, and all context needed to write it" }
+- { "type": "create_task", "title": "...", "description": "...", "priority": "normal|high|urgent", "due_date": "YYYY-MM-DD or null" }
+- { "type": "list_calendar", "date": "today|tomorrow|monday|YYYY-MM-DD" }
+- { "type": "create_event", "title": "...", "date": "today|tomorrow|monday|YYYY-MM-DD", "start_time": "HH:MM", "end_time": "HH:MM or null", "with_meet": true/false, "attendees": "email1,email2 or null", "description": "optional" }
+- { "type": "delete_event", "search": "keyword to find event", "date": "YYYY-MM-DD or null" }
+- { "type": "update_event", "search": "keyword", "date": "YYYY-MM-DD or null", "new_start": "HH:MM or null", "new_end": "HH:MM or null", "new_date": "tomorrow|monday|YYYY-MM-DD or null", "new_title": "null or string" }
+
+Rules:
+- Only extract actions with a clear, concrete recipient or outcome
+- For send_whatsapp: use the exact phone number from the contacts list
+- "schedule a meeting", "create a calendar event", "block time" = create_event
+- "what is on my calendar", "what do I have today" = list_calendar
+- "cancel my X meeting", "delete the X event" = delete_event
+- "move my X to Y", "reschedule X" = update_event
+- "Google Meet", "video call", "Meet link" = create_event with with_meet: true
+- If no clear executable actions, return []
+- Output JSON only, no markdown`;
+
+  const result = await runGPT(
+    'You are an action extraction assistant. Output JSON only.',
+    extractPrompt,
+    'gpt-4o-mini'
+  );
+  if (!result) return null;
+
+  let actions;
+  try {
+    const clean = result.trim().replace(/^```json\n?|```$/g, '').trim();
+    actions = JSON.parse(clean);
+    if (!Array.isArray(actions) || actions.length === 0) return null;
+  } catch (e) {
+    log(`Action extraction parse error: ${e.message}`);
+    return null;
+  }
+
+  const results = [];
+
+  for (const action of actions) {
+    if (action.type === 'send_whatsapp' && action.to && action.briefing) {
+      try {
+        const safeN = (action.name || 'user').toLowerCase().replace(/[^a-z0-9]/g, '-');
+        let recipientNotes = '';
+        try { recipientNotes = fs.readFileSync(path.join(WS, `memory/${safeN}-notes.md`), 'utf8'); } catch { /* */ }
+
+        const paPrompt = fs.readFileSync(PERSONAL_ASSISTANT_PROMPT_FILE, 'utf8');
+        const msgPrompt = `${paPrompt}
+
+You are sending a WhatsApp message to ${action.name || 'this person'} (${action.to}) on behalf of Amalfi AI.
+${recipientNotes ? `What you know about them:\n${recipientNotes}\n` : ''}
+Instruction: ${action.briefing}
+
+Write the WhatsApp message. Natural, warm. No hyphens. No bullet-point walls.`;
+
+        const msgContent = runClaude(msgPrompt, 'claude-sonnet-4-6');
+        if (!msgContent) {
+          results.push(`FAILED to generate message for ${action.name || action.to}`);
+          continue;
+        }
+
+        const sendPayload = JSON.stringify({ to: action.to, message: msgContent });
+        await new Promise((resolve) => {
+          const req = http.request({
+            hostname: '127.0.0.1', port: 3001, path: '/send', method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(sendPayload) },
+          }, (res) => { res.resume(); resolve(); });
+          req.on('error', (e) => { log(`WA send action error: ${e.message}`); resolve(); });
+          req.write(sendPayload);
+          req.end();
+        });
+
+        results.push(`Sent WhatsApp to ${action.name || action.to}: "${msgContent.slice(0, 100)}${msgContent.length > 100 ? '...' : ''}"`);
+        log(`Owner action: sent WA to ${action.to}`);
+      } catch (e) {
+        results.push(`Error sending to ${action.to}: ${e.message}`);
+        log(`Owner action error (send_whatsapp): ${e.message}`);
+      }
+
+    } else if (action.type === 'create_task' && action.title) {
+      try {
+        const taskBody = JSON.stringify({
+          title: action.title,
+          description: action.description || '',
+          priority: action.priority || 'normal',
+          status: 'todo',
+          ...(action.due_date ? { due_date: action.due_date } : {}),
+        });
+        await new Promise((resolve) => {
+          const url = new URL(`${SUPABASE_URL}/rest/v1/tasks`);
+          const req = https.request({
+            hostname: url.hostname, path: url.pathname, method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${SUPABASE_KEY}`,
+              'Prefer': 'return=minimal',
+            },
+          }, (res) => { res.resume(); resolve(); });
+          req.on('error', (e) => { log(`Task create action error: ${e.message}`); resolve(); });
+          req.write(taskBody);
+          req.end();
+        });
+        results.push(`Task created: "${action.title}"`);
+        log(`Owner action: created task "${action.title}"`);
+      } catch (e) {
+        results.push(`Error creating task: ${e.message}`);
+        log(`Owner action error (create_task): ${e.message}`);
+      }
+
+    } else if (action.type === 'list_calendar') {
+      const date = action.date || 'today';
+      const r = await runCalendarScript('list', date);
+      results.push(r.result || r.error || 'Calendar lookup failed');
+      log(`Owner action: list_calendar ${date}`);
+
+    } else if (action.type === 'create_event' && action.title) {
+      const args = ['create',
+        '--title', action.title,
+        '--date',  action.date || 'today',
+        '--start', action.start_time || '09:00',
+      ];
+      if (action.end_time)   args.push('--end', action.end_time);
+      if (action.with_meet)  args.push('--meet');
+      if (action.attendees)  args.push('--attendees', action.attendees);
+      if (action.description) args.push('--desc', action.description);
+      const r = await runCalendarScript(...args);
+      results.push(r.result || r.error || 'Event creation failed');
+      log(`Owner action: create_event "${action.title}"`);
+
+    } else if (action.type === 'delete_event' && action.search) {
+      const args = ['delete', '--search', action.search];
+      if (action.date) args.push('--date', action.date);
+      const r = await runCalendarScript(...args);
+      results.push(r.result || r.error || 'Delete failed');
+      log(`Owner action: delete_event "${action.search}"`);
+
+    } else if (action.type === 'update_event' && action.search) {
+      const args = ['update', '--search', action.search];
+      if (action.date)      args.push('--date', action.date);
+      if (action.new_start) args.push('--new-start', action.new_start);
+      if (action.new_end)   args.push('--new-end', action.new_end);
+      if (action.new_date)  args.push('--new-date', action.new_date);
+      if (action.new_title) args.push('--new-title', action.new_title);
+      const r = await runCalendarScript(...args);
+      results.push(r.result || r.error || 'Update failed');
+      log(`Owner action: update_event "${action.search}"`);
+    }
+  }
+
+  return results.length > 0 ? results.join('\n') : null;
+}
+// ── End owner action execution ─────────────────────────────────────────────────
 
 async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
   let userText = msg.body || '';
@@ -762,10 +961,20 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
 
   const messageWithContext = batchPrefix + (quotedNote ? `${userText}${quotedNote}` : userText);
 
+  // For Josh (isOwner) — detect and execute action instructions before generating response
+  // so Sophia can confirm what was ACTUALLY done (past tense), not promise what she "will" do
+  let executionSummary = '';
+  if (isOwner) {
+    const execResult = await extractAndExecuteOwnerActions(userText, contacts);
+    if (execResult) {
+      executionSummary = `\n\n=== ACTIONS I JUST EXECUTED ===\n${execResult}\nIMPORTANT: Confirm to Josh what you ALREADY DID (past tense). Do NOT say you "will" do anything that is already done.`;
+    }
+  }
+
   // GPT-4o: system = Sophia's identity rules, user = all context + message
   const userContent = historyText
-    ? `Today: ${today}${channelLine}${memBlock}\n=== RECENT CONVERSATION ===\n${historyText}\n\n${speaker}: ${messageWithContext}`
-    : `Today: ${today}${channelLine}${memBlock}\n${speaker}: ${messageWithContext}`;
+    ? `Today: ${today}${channelLine}${memBlock}\n=== RECENT CONVERSATION ===\n${historyText}\n\n${speaker}: ${messageWithContext}${executionSummary}`
+    : `Today: ${today}${channelLine}${memBlock}\n${speaker}: ${messageWithContext}${executionSummary}`;
 
   if (histFile) appendHistory(speaker, userText, histFile);
 
@@ -810,8 +1019,20 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
   let response = await runGPT(lockedSystemPrompt, userContent);
 
   if (!response) {
-    log('No response from GPT-4o');
-    return;
+    log('GPT-4o failed — trying Claude fallback...');
+    try {
+      response = runClaude(lockedSystemPrompt + '\n\n' + userContent);
+    } catch (e) {
+      log(`Claude fallback threw: ${e.message}`);
+      response = null;
+    }
+    if (!response) {
+      log('Both GPT-4o and Claude failed — sending holding message');
+      notifyTelegram('⚠️ Sophia WhatsApp: GPT-4o failed, Claude fallback also failed for message from ' + senderName);
+      try { await msg.reply('Hey, I\'m having a moment. Let me get back to you shortly.'); } catch (_) {}
+      return;
+    }
+    log('Claude fallback succeeded');
   }
 
   // Strip surrounding quotation marks GPT-4o sometimes wraps responses in
@@ -966,6 +1187,42 @@ function saveToSupabase(params) {
 
 // ── Media helpers ─────────────────────────────────────────────────────────────
 
+// Generate voice note via OpenAI TTS (gpt-4o-mini-tts, nova) — returns opus Buffer or null
+function generateTTS(text) {
+  const key = env.OPENAI_API_KEY || '';
+  if (!key) return Promise.resolve(null);
+  const payload = Buffer.from(JSON.stringify({
+    model: 'gpt-4o-mini-tts',
+    input: text,
+    voice: 'nova',
+    response_format: 'opus',
+  }));
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'api.openai.com',
+      path: '/v1/audio/speech',
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json',
+        'Content-Length': payload.length,
+      },
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        log(`TTS API error: HTTP ${res.statusCode}`);
+        res.resume();
+        return resolve(null);
+      }
+      const chunks = [];
+      res.on('data', d => chunks.push(d));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+    req.on('error', (e) => { log(`TTS request error: ${e.message}`); resolve(null); });
+    req.write(payload);
+    req.end();
+  });
+}
+
 // Transcribe voice note via Deepgram nova-2
 function transcribeAudio(audioBuffer, mimetype) {
   const key = env.DEEPGRAM_API_KEY || '';
@@ -1052,7 +1309,7 @@ const client = new Client({
   },
   puppeteer: {
     headless: true,
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     protocolTimeout: 120000,
   },
@@ -1215,11 +1472,6 @@ client.on('message', async (msg) => {
   }, isGroup ? DEBOUNCE_GROUP_MS : DEBOUNCE_DM_MS);
 });
 
-client.on('disconnected', (reason) => {
-  log(`Disconnected: ${reason} — will reconnect`);
-  setTimeout(() => client.initialize(), 5000);
-});
-
 // ── Outbound HTTP API (localhost:3001) ────────────────────────────────────────
 // POST /send  { "to": "+27812705358", "message": "Hello" }
 // POST /send  { "to": "groupname", "message": "Hello" }  (partial name match)
@@ -1265,6 +1517,37 @@ const apiServer = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify(out, null, 2));
     } catch (e) { res.writeHead(500); return res.end(JSON.stringify({ error: e.message })); }
+  }
+
+  // POST /send-voice — generate TTS from text and send as WhatsApp voice note (PTT)
+  if (req.method === 'POST' && req.url === '/send-voice') {
+    let body = '';
+    req.on('data', d => { body += d; });
+    req.on('end', async () => {
+      try {
+        const { to, text } = JSON.parse(body);
+        if (!to || !text) { res.writeHead(400); return res.end(JSON.stringify({ error: 'to and text required' })); }
+        if (!clientReady) { res.writeHead(503); return res.end(JSON.stringify({ error: 'WhatsApp client not ready' })); }
+
+        const audioBuffer = await generateTTS(text);
+        if (!audioBuffer) { res.writeHead(500); return res.end(JSON.stringify({ error: 'TTS generation failed' })); }
+
+        const cleanTo = to.replace(/\s/g, '').replace(/^\+/, '');
+        const chatId = /^\d+$/.test(cleanTo) ? `${cleanTo}@c.us` : null;
+        if (!chatId) { res.writeHead(400); return res.end(JSON.stringify({ error: 'invalid number' })); }
+
+        const media = new MessageMedia('audio/ogg; codecs=opus', audioBuffer.toString('base64'), 'voice.ogg');
+        await client.sendMessage(chatId, media, { sendAudioAsVoice: true });
+        log(`Voice note sent → ${to}: "${text.slice(0, 60)}"`);
+        res.writeHead(200);
+        res.end(JSON.stringify({ ok: true, to, chatId, chars: text.length }));
+      } catch (e) {
+        log(`/send-voice error: ${e.message}`);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
   }
 
   if (req.method !== 'POST' || req.url !== '/send') {
@@ -1318,7 +1601,24 @@ const apiServer = http.createServer(async (req, res) => {
 
 apiServer.listen(API_PORT, '127.0.0.1', () => {
   log(`Outbound API listening on localhost:${API_PORT}`);
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    log(`Port ${API_PORT} already in use — another instance may be running. Exiting.`);
+    notifyTelegram(`⚠️ Sophia WhatsApp gateway failed to start: port ${API_PORT} in use`);
+    process.exit(1);
+  }
+  throw err;
 });
+
+// ── Graceful shutdown ─────────────────────────────────────────────────────────
+async function shutdown(signal) {
+  log(`${signal} received — shutting down gracefully...`);
+  try { await client.destroy(); } catch (_) {}
+  try { apiServer.close(); } catch (_) {}
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
 
 // ── WhatsApp client ───────────────────────────────────────────────────────────
 log('Starting WhatsApp client...');

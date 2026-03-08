@@ -64,7 +64,6 @@ write_status() {
   # Ask Claude to summarise for Sophia
   local TMPFILE
   TMPFILE=$(mktemp /tmp/dev-status-XXXXXX)
-  trap 'rm -f "$TMPFILE"' EXIT
 
   cat > "$TMPFILE" <<PROMPT
 You are summarising recent development activity for Sophia, Amalfi AI's Client Success Manager.
@@ -91,7 +90,7 @@ Rules:
 PROMPT
 
   local STATUS
-  STATUS=$(claude --print --model claude-haiku-4-5-20251001 --dangerously-skip-permissions < "$TMPFILE" 2>/dev/null || echo "")
+  STATUS=$(/Users/henryburton/.openclaw/bin/claude-gated --print --model claude-haiku-4-5-20251001 --dangerously-skip-permissions < "$TMPFILE" 2>/dev/null || echo "")
   rm -f "$TMPFILE"
 
   if [[ -z "$STATUS" ]]; then

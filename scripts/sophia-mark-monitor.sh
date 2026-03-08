@@ -12,7 +12,9 @@ NOTES_FILE="$WS/memory/mark-notes.md"
 LOG="$WS/out/sophia-mark-monitor.log"
 ISSUES_LOG="$WS/out/sophia-mark-issues.log"
 
+set -a
 source "$WS/.env.scheduler"
+set +a
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
 

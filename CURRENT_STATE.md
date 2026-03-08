@@ -1,32 +1,43 @@
-# CURRENT STATE — 2026-03-07 01:00 UTC
+# CURRENT STATE — 2026-03-08 06:54 UTC
 > Auto-generated every night. Read this file for live operational context.
 
 ## Agent Health
+  ✅ sophia-trial-decouple (exit 0)
   ✅ daily-repo-sync (exit 0)
   ✅ read-ai-sync (exit 0)
   ✅ calendar-sync (exit 0)
   ✅ research-implement (exit 0)
   ✅ tiktok-live-reminder (exit 0)
+  ✅ vanta-icp-monitor (exit 0)
+  ⚠️ sophia-mark-monitor (exit 1)
   ✅ alex-outreach (exit 0)
+  ✅ sophia-awareness (exit 0)
   ✅ sophia-cron (exit 0)
   ✅ salah-weekly-brief (exit 0)
   ✅ pending-nudge (exit 0)
   ✅ socks-tunnel (exit 0)
+  ✅ vanta-lead-discovery (exit 0)
+  ⚠️ update-dev-status (exit 1)
+  ✅ wa-weekly-brief (exit 0)
   ✅ apollo-sourcer (exit 0)
-  ✅ morning-brief (exit 0)
+  ⚠️ morning-brief (exit 127)
   ✅ email-opens-poller (exit 0)
-  ✅ error-monitor (exit 0)
+  ⚠️ error-monitor (exit 127)
+  ✅ update-client-dev-status (exit 0)
   ✅ rt-token-sync (exit 0)
   ✅ meeting-digest (exit 0)
   ✅ whatsapp-inbound-notifier (exit 0)
   ✅ alex-reply-detection (exit 0)
+  ✅ whatsapp-wjs-gateway (exit 0)
   ✅ agent-status-updater (exit 0)
   ✅ rt-monitor (exit 0)
   ✅ session-backup (exit 0)
   ✅ head-agent (exit 0)
   ✅ finance-report (exit 0)
+  ✅ reminder-dispatcher (exit 0)
   ✅ whatsapp-capture (exit 0)
   ✅ weekly-memory (exit 0)
+  ✅ vanta-lead-verify (exit 0)
   ✅ research-digest (exit 0)
   ✅ claude-task-worker (exit 0)
   ✅ reminder-poller (exit 0)
@@ -39,9 +50,11 @@
   ✅ meet-notes-poller (exit 0)
   ✅ pinchtab (exit 0)
   ✅ data-os-sync (exit 0)
-  ✅ content-creator (exit 0)
+  ⚠️ content-creator (exit 127)
   ✅ email-response-scheduler (exit 0)
+  ✅ ros-watchdog (exit 0)
   ✅ sophia-outbound (exit 0)
+  ✅ whatsapp-claude-gateway (exit 0)
   ✅ telegram-poller (exit 0)
   ✅ memory-writer (exit 0)
   ✅ fnb-email-poller (exit 0)
@@ -49,7 +62,7 @@
   ✅ video-poller (exit 0)
   ✅ finance-poller (exit 0)
   ✅ git-backup (exit 0)
-  ✅ nightly-ops (exit 0)
+  ⚠️ nightly-ops (exit 127)
 
 ## Email Queue
   auto_pending: 1
@@ -74,59 +87,59 @@
   (none)
 
 ## Repo Status
-  workspace: 5 dirty
-  mission-control-hub: clean
-  qms-guard: 1 behind
-  favorite-flow: 6 behind
+  workspace: 11 dirty
+  mission-control-hub: 4 dirty, 1 ahead
+  qms-guard: clean
+  favorite-flow: clean
 
 ## Recent Activity
-  2026-03-07 00:36 — dirty: workspace | behind: qms-guard, favorite-flow
-  2026-03-07 00:41 — dirty: workspace | behind: qms-guard, favorite-flow
-  2026-03-07 00:46 — dirty: workspace | behind: qms-guard, favorite-flow
-  2026-03-07 00:51 — dirty: workspace | behind: qms-guard, favorite-flow
-  2026-03-07 00:56 — dirty: workspace | behind: qms-guard, favorite-flow
+  2026-03-08 06:31 — dirty: workspace, mission-control-hub | behind: qms-guard, favorite-flow
+  2026-03-08 06:36 — dirty: workspace, mission-control-hub | behind: qms-guard, favorite-flow
+  2026-03-08 06:42 — dirty: workspace, mission-control-hub | behind: qms-guard, favorite-flow
+  2026-03-08 06:47 — dirty: workspace, mission-control-hub | behind: qms-guard, favorite-flow
+  2026-03-08 06:52 — dirty: workspace, mission-control-hub
 
 ## Scope Creep Alerts
   ⚠️ race_technik: SCOPE_CREEP_RISK (5 workflow categories, threshold 4)
 
 ## Today's Log
 
-### 02:41 SAST — Claude Desktop App (session 4541838f)
+### 04:48 SAST — Claude Code Terminal (session 2b4b6041)
 
-**Josh:** okay i gave you quite a good amount of mcp connectors now. can you check it out
+**Josh:** You are a memory assistant. Read this WhatsApp exchange and extract any NEW facts, preferences, interests, or context about Josh that are not already in the notes below. Be brief and specific. Output ONLY new bullet points (e.g. "- Loves F1, McLaren fan"), or output nothing if nothing new was learned.
 
-**Claude:** That's a serious stack, Josh. Let me run through what you've got connected:
+EXISTING NOTES:
 
-**Development & Code**
-- **Serena** — Semantic code intelligence (symbol navigation, refactoring)
-- **Context7** — Live library docs lookup (2 instances connected)
-- **Supabase** — Database management, migrations, edge functions
-- **Vercel** — Deployments, build logs, runtime logs
-- **Firebase** — Project management, Firestore, hosting, Google dev docs
+<!-- 2026/03/07 -->
+- New client/member Ozayr just onboarded — initiation fee due Monday, remaining balance paid throughout the month
+- Business uses initiation fee + staggered payment model for client onboarding
 
-**Browser & Preview**
-- **Claude in Chrome** — Full browser automation (clicks, forms, screenshots, console, network)
-- **Claude Preview** — Dev server management + visual verification
-- **Control Chrome** — Tab management, JS execution, page content
-- **Playwright** — Headless browser automation
+<!-- 2026/03/07 -->
+- Total Ozayr contract value: 150k (10k upfront Monday + 50k balance over 8 weeks)
+- Business philosophy: prioritizes "maximum value all the time" for clients; very client-focused mindset
+- Describes Ozayr as a "really good client" he's looking forward to working with — values quality over just transaction volume
 
-**Productivity**
-- **Gmail** — Search, read, draft emails
-- **Google Calendar** — Events, scheduling, availability
-- **Notion** — Pages, databases, search, comments
-- **Scheduled Tasks** — Recurring task automation
+<!-- 2026/03/07 -->
+- Vanta Studios is now live/onboarded — setup starting today (March 7)
+- Mac Mini purchased for Vanta Studios...
 
-**Design & Content**
-- **Figma** — Design-to-code, screenshots, Code Connect
-- **Excalidraw** — Hand-drawn diagrams
-- **Gamma** — Presentations, documents, social posts
+**Claude:** - Delegates meeting/calendar management to Sophia (AI) — wants to grant Google Calendar, Gmail, and Google Meet access
+- Riaan is a collaborator/connection with ongoing business ideas to discuss
+- Yaseen is a contact Josh maintains regular communication with
+- Salah handles client invoicing and FNB financial account access
+- Uses AI automation (Sophia) extensively for task management, reminders, and operational delegation
 
-**Sales & Prospecting**
-- **Clay** — Contact/company enrichment, search
-- **Vibe Prospecting** — B2B lead generation, firmographics, intent data
 
-**DevOps & Debugging**
-- **Sentry** — Error tracking, issue analysis, Seer AI root cause
-- **Jam.dev** — Bug report analysis (video, console, network logs)
+### 04:55 SAST — Claude Code Terminal (session 483ff459)
 
-**Files & System**
+**Josh:** You are a memory assistant. Read this WhatsApp exchange and extract any NEW facts, preferences, interests, or context about Josh that are not already in the notes below. Be brief and specific. Output ONLY new bullet points (e.g. "- Loves F1, McLaren fan"), or output nothing if nothing new was learned.
+
+EXISTING NOTES:
+
+<!-- 2026/03/07 -->
+- New client/member Ozayr just onboarded — initiation fee due Monday, remaining balance paid throughout the month
+- Business uses initiation fee + staggered payment model for client onboarding
+
+<!-- 2026/03/07 -->
+- Total Ozayr contract value: 150k (10k upfront Monday + 50k balance over 8 weeks)
+- Business philosophy: prioritizes "maximum value all the time" for clients; very client-focused mindset
