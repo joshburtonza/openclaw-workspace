@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.amalfiai.vanta-icp-discovery</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/vanta-icp-discovery.sh</string>
+    </array>
+    <!-- 09:30 SAST on 2026-03-08 (fires once) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Year</key>  <integer>2026</integer>
+        <key>Month</key> <integer>3</integer>
+        <key>Day</key>   <integer>8</integer>
+        <key>Hour</key>  <integer>9</integer>
+        <key>Minute</key><integer>30</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/vanta-icp-discovery.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/vanta-icp-discovery.err.log</string>
+</dict>
+</plist>

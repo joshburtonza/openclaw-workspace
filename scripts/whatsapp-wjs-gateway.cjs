@@ -352,6 +352,73 @@ function saveReminders(list) {
   try { fs.writeFileSync(REMINDERS_FILE, JSON.stringify(list, null, 2)); } catch { /* */ }
 }
 
+// ── Client brief — live per-message context for known client contacts ──────────
+// Maps company name (extracted from role) to Supabase client_id and local repo path
+const CLIENT_MAP = {
+  'Race Technik':         { id: 'ed045bcb-100f-4fc4-8623-2befcf2c8c14', repo: path.join(WS, 'clients/race-technik'), devKey: 'race-technik' },
+  'Vanta Studios':        { id: 'd2a6eb7c-014c-43e6-9a5e-e0d5876c21cc', repo: path.join(WS, 'clients/vanta-studios'), devKey: 'vanta-studios' },
+  'Ambassadex':           { id: null,                                     repo: path.join(WS, 'ambassadex'),           devKey: 'ambassadex' },
+  'Favorite Logistics':   { id: 'fb9724b4-1d11-43c4-a76c-e82f7b820c11', repo: path.join(WS, 'favorite-flow-9637aff2'), devKey: 'favorite-logistics' },
+  'Favlog':               { id: 'fb9724b4-1d11-43c4-a76c-e82f7b820c11', repo: path.join(WS, 'favorite-flow-9637aff2'), devKey: 'favorite-logistics' },
+  'Ascend LC':            { id: 'c465aa44-519b-4b35-b4de-2b5c3b89359e', repo: null,                                   devKey: 'ascend-lc' },
+};
+
+async function fetchClientBrief(senderRole) {
+  // Extract company name from role like "Owner, Vanta Studios"
+  const parts = senderRole.split(',');
+  const company = (parts[1] || '').trim();
+  const clientInfo = CLIENT_MAP[company];
+  if (!clientInfo) return '';
+
+  const sections = [];
+  const today = new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' }).split(',')[0];
+
+  // 1. Recent git commits for their repo
+  if (clientInfo.repo) {
+    try {
+      const { execSync } = require('child_process');
+      const commits = execSync(
+        `git -C "${clientInfo.repo}" log --oneline --since="7 days ago" --format="%h %s (%cr)" 2>/dev/null | head -5`,
+        { encoding: 'utf8', timeout: 5000 }
+      ).trim();
+      if (commits) sections.push(`Recent commits:\n${commits}`);
+    } catch { /* repo may not have git or no commits */ }
+  }
+
+  // 2. Active Supabase tasks for this client
+  if (clientInfo.id && SUPABASE_KEY) {
+    try {
+      const tasksUrl = `${SUPABASE_URL}/rest/v1/tasks?client_id=eq.${clientInfo.id}&status=in.(todo,in_progress)&order=priority.desc&limit=8`;
+      const resp = await fetch(tasksUrl, {
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+      });
+      const tasks = await resp.json();
+      if (Array.isArray(tasks) && tasks.length > 0) {
+        const taskLines = tasks.map(t => {
+          const p = t.priority === 'urgent' ? '[URGENT]' : t.priority === 'high' ? '[HIGH]' : '';
+          return `  ${p} [${t.status}] ${t.title}`.trim();
+        }).join('\n');
+        sections.push(`Active tasks:\n${taskLines}`);
+      }
+    } catch { /* */ }
+  }
+
+  // 3. DEV_STATUS snippet for this client
+  try {
+    const devStatus = fs.readFileSync(path.join(WS, 'DEV_STATUS.md'), 'utf8');
+    const marker = clientInfo.devKey.toLowerCase();
+    const lines = devStatus.split('\n');
+    const idx = lines.findIndex(l => l.toLowerCase().includes(marker));
+    if (idx !== -1) {
+      const snippet = lines.slice(idx, idx + 10).join('\n').trim();
+      if (snippet) sections.push(`Dev status:\n${snippet}`);
+    }
+  } catch { /* */ }
+
+  if (!sections.length) return '';
+  return `\n=== ${company.toUpperCase()} — CLIENT BRIEF (live as of ${today}) ===\n${sections.join('\n\n')}\n`;
+}
+
 function extractAndSaveReminder(fromNum, senderName, userText, sophiaReply) {
   // Quick pre-check — only bother if message smells like a reminder request
   const reminderKeywords = /remind|reminder|don.t forget|follow.?up|check.?in|ping me|alert me/i;
@@ -663,8 +730,21 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
     try { userProfile = fs.readFileSync(path.join(WS, `memory/${safeNameKey}-notes.md`), 'utf8'); } catch { /* */ }
   }
 
-  const memBlock = (userProfile || longTermMemory || currentState)
-    ? `\n=== ${senderName.toUpperCase()} PROFILE ===\n${userProfile}\n\n=== AMALFI AI MEMORY ===\n${longTermMemory}\n\n=== CURRENT SYSTEM STATE ===\n${currentState}\n`
+  // Sophia awareness feed — full ops feed for Josh; client brief for known clients
+  let sophiaAwareness = '';
+  if (isOwner) {
+    try { sophiaAwareness = fs.readFileSync(path.join(WS, 'memory/sophia-awareness.md'), 'utf8'); } catch { /* */ }
+  }
+  const awarenessBlock = sophiaAwareness ? `\n=== LIVE ACTIVITY FEED ===\n${sophiaAwareness}\n` : '';
+
+  // Live client brief — injected for known client contacts (not trial, not owner, not team)
+  let clientBrief = '';
+  if (!isOwner && !isTeamMember && !isTrialUser && !isPersonal && senderRole && senderRole.includes(',')) {
+    clientBrief = await fetchClientBrief(senderRole);
+  }
+
+  const memBlock = (userProfile || longTermMemory || currentState || sophiaAwareness || clientBrief)
+    ? `\n=== ${senderName.toUpperCase()} PROFILE ===\n${userProfile}\n\n=== AMALFI AI MEMORY ===\n${longTermMemory}\n\n=== CURRENT SYSTEM STATE ===\n${currentState}\n${awarenessBlock}${clientBrief}`
     : '';
 
   const speaker   = senderName !== fromNum ? senderName : (isOwner ? 'Josh' : 'User');
