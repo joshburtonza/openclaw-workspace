@@ -115,13 +115,10 @@ async function searchFlySafair() {
 }
 
 async function searchLift() {
-  // Lift.co.za uses AeroCRS. Direct results URL pattern (bypasses the booking form):
-  // https://www.lift.co.za/flight-results/{FROM}-{TO}/{YYYY-MM-DD}/{return-date-or-NA}/1/0/0
-  //
-  // The results page is protected by Imperva WAF + hCaptcha.
-  // Solution: persistent Chrome profile stored in .lift-profile/
-  //   - First run: headless=false so Josh can solve the checkbox captcha once
-  //   - Subsequent runs: Imperva bypass cookie reused automatically (headless=true)
+  // Lift.co.za uses a PHP middleware wrapping AeroCRS internally.
+  // Strategy: navigate to the results URL (establishes PHPSESSID), then call their
+  // internal flightList.php endpoint from within the page context using fetch().
+  // This avoids all DOM parsing, screenshots, and element hunting — pure JSON response.
 
   const LIFT_ROUTES = new Set(['CPT-JNB', 'JNB-CPT', 'CPT-DUR', 'DUR-CPT', 'JNB-DUR', 'DUR-JNB']);
   const route = `${FROM}-${TO}`;
@@ -132,133 +129,85 @@ async function searchLift() {
   const returnPart = RETURN || 'NA';
   const resultsUrl = `https://www.lift.co.za/flight-results/${route}/${DATE}/${returnPart}/${ADULTS}/0/0`;
 
-  // Use real Chrome binary — far less detectable by Imperva than Playwright's Chromium.
-  // Use FROM-specific profile dirs so parallel searches (CPT↔JNB) don't conflict.
   const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   const profileDir = join(__dirname, `.lift-profile-${FROM}`);
   if (!existsSync(profileDir)) mkdirSync(profileDir, { recursive: true });
 
-  const hasCookies = existsSync(join(profileDir, 'Default', 'Cookies'));
-  process.stderr.write(`[lift] url: ${resultsUrl}\n`);
-  process.stderr.write(`[lift] using real Chrome, profile: ${hasCookies ? 'existing' : 'new'}\n`);
+  process.stderr.write(`[lift] API fetch via page context: ${resultsUrl}\n`);
 
   const context = await chromium.launchPersistentContext(profileDir, {
     executablePath: CHROME_PATH,
-    headless: false,   // Real Chrome headed mode — Imperva cannot distinguish from a real user
-    args: [
-      '--no-sandbox',
-      '--disable-blink-features=AutomationControlled',
-    ],
+    headless: true,
+    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
     ignoreDefaultArgs: ['--enable-automation'],
   });
 
   const page = await context.newPage();
-
-  // Override webdriver flag regardless
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   });
 
   try {
+    // Navigate to establish PHPSESSID + session route context
     await page.goto(resultsUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(2500);
 
-    // Check if Imperva blocked us
-    const isBlocked = await page.evaluate(() =>
-      document.title.includes('security') ||
-      document.body.innerText.includes('Additional security check') ||
-      document.body.innerText.includes('I am human') ||
-      document.body.innerText.includes('hcaptcha')
-    );
-
-    if (isBlocked) {
-      process.stderr.write('[lift] Imperva security check triggered — waiting up to 30s for auto-pass or manual solve...\n');
-      // Real Chrome often auto-passes; wait for it
-      await page.waitForURL(
-        url => !url.toString().includes('_Incapsula') && !url.toString().includes('security'),
-        { timeout: 30000 }
-      ).catch(() => {});
-      await page.waitForTimeout(3000);
-    }
-
-    // Dismiss cookie preferences modal if present
-    await page.locator('button:has-text("ACCEPT ALL COOKIES"), button:has-text("Accept All Cookies")').first().click().catch(() => {});
-    await page.waitForTimeout(500);
-
-    // Dismiss Imperva error modal if it appears (close X button)
-    await page.locator('.modal .close, .modal-close, button.close, [aria-label="Close"], .modal × ').first().click().catch(() => {});
-    // Also try clicking the X in the error modal
-    await page.evaluate(() => {
-      const modals = document.querySelectorAll('.modal, [class*="modal"], [id*="modal"]');
-      modals.forEach(m => {
-        const closeBtn = m.querySelector('.close, [aria-label="Close"], button');
-        if (closeBtn) closeBtn.click();
+    // Call their internal flight list API from within the page (session cookie auto-included)
+    const raw = await page.evaluate(async () => {
+      const resp = await fetch('/controllers/flightresults/flightList.php?action=flightsPull', {
+        credentials: 'include',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
-    }).catch(() => {});
-    await page.waitForTimeout(1000);
-
-    // Wait for the AeroCRS results widget to fully render
-    await page.waitForTimeout(3000);
-
-    // Screenshot for debug
-    const shotPath = join(tmpdir(), `lift-results-${Date.now()}.png`);
-    await page.screenshot({ path: shotPath, fullPage: false });
-    process.stderr.write(`[lift] screenshot: ${shotPath}\n`);
-
-    // Parse flight results: find compact elements containing exactly one FLIGHT code
-    const flights = await page.evaluate(() => {
-      const results = [];
-
-      // Find elements that contain exactly one "FLIGHT XXXX" code + a price
-      // Elements with multiple FLIGHT codes are parent containers — exclude them
-      let candidates = Array.from(document.querySelectorAll('*')).filter(el => {
-        const t = el.innerText || '';
-        const flightMatches = t.match(/FLIGHT\s+[A-Z0-9]+/gi) || [];
-        return flightMatches.length === 1 && /R\s?\d[\d,]+/.test(t) && t.length < 500;
-      });
-
-      // Sort shortest first (most specific element)
-      candidates.sort((a, b) => a.innerText.length - b.innerText.length);
-
-      // Deduplicate by flight code
-      const seenFlights = new Set();
-      const rows = [];
-      for (const el of candidates) {
-        const fm = (el.innerText || '').match(/FLIGHT\s+([A-Z0-9]+)/i);
-        if (fm && !seenFlights.has(fm[1])) {
-          seenFlights.add(fm[1]);
-          rows.push(el);
-          if (rows.length >= 8) break;
-        }
-      }
-
-      rows.forEach((card, i) => {
-        const text = card.innerText || '';
-        // Times appear as: departure (HH:MM) | duration (HH:MM) | arrival (HH:MM)
-        const timeMatches = text.match(/\b\d{2}:\d{2}\b/g) || [];
-        const priceMatch  = text.match(/R\s?([\d,]+)/);
-        const flightMatch = text.match(/FLIGHT\s+([A-Z0-9]+)/i);
-        const stopMatch   = text.match(/Non.stop|Connecting/i);
-        results.push({
-          index:     i + 1,
-          departure: timeMatches[0] || null,
-          arrival:   timeMatches[2] || timeMatches[1] || null,  // skip duration at index 1
-          duration:  timeMatches[1] || null,
-          flight:    flightMatch ? flightMatch[1] : null,
-          price:     priceMatch  ? 'R' + priceMatch[1].replace(/,/g, '') : null,
-          stops:     stopMatch ? stopMatch[0] : null,
-          raw:       text.slice(0, 200).replace(/\n+/g, ' | ').trim(),
-        });
-      });
-
-      return results;
+      return resp.text();
     });
 
     await context.close();
-    return flights;
+
+    const data = JSON.parse(raw);
+    const outbound = data.outbound || data.flights || [];
+
+    if (!outbound.length) return [];
+
+    return outbound.map((f, i) => {
+      // Parse UTC times to SAST (UTC+2)
+      const toSAST = (utcStr) => {
+        if (!utcStr) return null;
+        const d = new Date(utcStr.replace(' ', 'T').replace(/\.000$/, '') + 'Z');
+        return d.toLocaleTimeString('en-ZA', { timeZone: 'Africa/Johannesburg', hour: '2-digit', minute: '2-digit', hour12: false });
+      };
+
+      const dep = toSAST(f.stdinutc);
+      const arr = toSAST(f.stainutc);
+
+      // Duration from UTC timestamps
+      let duration = null;
+      if (f.stdinutc && f.stainutc) {
+        const depD = new Date(f.stdinutc.replace(' ', 'T').replace(/\.000$/, '') + 'Z');
+        const arrD = new Date(f.stainutc.replace(' ', 'T').replace(/\.000$/, '') + 'Z');
+        const mins = Math.round((arrD - depD) / 60000);
+        duration = `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}`;
+      }
+
+      // Find cheapest bookable class
+      const classes = (f.classes || []).filter(c => c.bookable && parseFloat(c.price) > 0);
+      const cheapest = classes.sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
+      const priceNum = cheapest ? parseFloat(cheapest.price) : null;
+
+      return {
+        index:     i + 1,
+        departure: dep,
+        arrival:   arr,
+        duration,
+        flight:    f.fltnum || null,
+        price:     priceNum != null ? `R${Math.round(priceNum)}` : null,
+        priceNum,
+        stops:     f.flighttype || 'Direct',
+        cabin:     cheapest?.classname || null,
+      };
+    }).filter(f => f.priceNum != null);
 
   } catch (err) {
-    await context.close();
+    await context.close().catch(() => {});
     throw err;
   }
 }

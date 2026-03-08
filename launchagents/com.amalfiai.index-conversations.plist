@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.amalfiai.index-conversations</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/bin/python3</string>
+      <string>/Users/henryburton/.openclaw/workspace-anthropic/scripts/index-conversations.py</string>
+    </array>
+
+    <!-- Every 30 minutes -->
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/index-conversations.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/henryburton/.openclaw/workspace-anthropic/out/index-conversations.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+      <key>HOME</key>
+      <string>/Users/henryburton</string>
+    </dict>
+  </dict>
+</plist>

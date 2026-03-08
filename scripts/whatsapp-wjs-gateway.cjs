@@ -358,7 +358,8 @@ async function processNext() {
 
 
 // ── Reminder extraction ───────────────────────────────────────────────────────
-const REMINDERS_FILE = path.join(WS, 'tmp/reminders.json');
+const REMINDERS_FILE      = path.join(WS, 'tmp/reminders.json');
+const PROACTIVE_QUEUE_FILE = path.join(WS, 'tmp/proactive-queue.json');
 
 function loadReminders() {
   try { return JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8')); } catch { return []; }
@@ -366,6 +367,67 @@ function loadReminders() {
 
 function saveReminders(list) {
   try { fs.writeFileSync(REMINDERS_FILE, JSON.stringify(list, null, 2)); } catch { /* */ }
+}
+
+function loadProactiveQueue() {
+  try { return JSON.parse(fs.readFileSync(PROACTIVE_QUEUE_FILE, 'utf8')); } catch { return []; }
+}
+
+function saveProactiveQueue(list) {
+  try { fs.writeFileSync(PROACTIVE_QUEUE_FILE, JSON.stringify(list, null, 2)); } catch { /* */ }
+}
+
+// Resolve a phone number or partial group name to a WA chat ID
+function resolveChatId(to) {
+  if (!to) return null;
+  // Already a WA ID
+  if (to.endsWith('@c.us') || to.endsWith('@g.us')) return to;
+  // Phone number
+  const digits = to.replace(/\D/g, '');
+  if (digits.length >= 8) return digits + '@c.us';
+  return null;
+}
+
+// Check reminders.json and proactive-queue.json; fire any that are due
+async function checkAndFireProactive() {
+  if (!clientReady) return;
+  const now = new Date();
+
+  // ── Reminders ──────────────────────────────────────────────────────────────
+  const reminders = loadReminders();
+  let rChanged = false;
+  for (const r of reminders) {
+    if (r.fired) continue;
+    if (new Date(r.fireAt) > now) continue;
+    const chatId = resolveChatId(r.to);
+    if (!chatId) { r.fired = true; rChanged = true; continue; }
+    try {
+      await client.sendMessage(chatId, r.message);
+      log(`Reminder fired → ${r.name || r.to}: "${r.message.slice(0, 60)}"`);
+    } catch (e) {
+      log(`Reminder fire error: ${e.message}`);
+    }
+    r.fired = true;
+    rChanged = true;
+  }
+  if (rChanged) saveReminders(reminders);
+
+  // ── Proactive queue ────────────────────────────────────────────────────────
+  const queue = loadProactiveQueue();
+  const remaining = [];
+  for (const item of queue) {
+    if (item.sendAt && new Date(item.sendAt) > now) { remaining.push(item); continue; }
+    const chatId = resolveChatId(item.to);
+    if (!chatId) continue;
+    try {
+      await client.sendMessage(chatId, item.message);
+      log(`Proactive sent → ${item.to}: "${item.message.slice(0, 60)}"`);
+    } catch (e) {
+      log(`Proactive send error: ${e.message}`);
+      remaining.push(item); // retry next cycle
+    }
+  }
+  if (remaining.length !== queue.length) saveProactiveQueue(remaining);
 }
 
 // ── Client brief — live per-message context for known client contacts ──────────
@@ -376,7 +438,7 @@ const CLIENT_MAP = {
   'Ambassadex':           { id: null,                                     repo: path.join(WS, 'ambassadex'),           devKey: 'ambassadex' },
   'Favorite Logistics':   { id: 'fb9724b4-1d11-43c4-a76c-e82f7b820c11', repo: path.join(WS, 'favorite-flow-9637aff2'), devKey: 'favorite-logistics' },
   'Favlog':               { id: 'fb9724b4-1d11-43c4-a76c-e82f7b820c11', repo: path.join(WS, 'favorite-flow-9637aff2'), devKey: 'favorite-logistics' },
-  'Ascend LC':            { id: 'c465aa44-519b-4b35-b4de-2b5c3b89359e', repo: null,                                   devKey: 'ascend-lc' },
+  'Ascend LC':            { id: 'c465aa44-519b-4b35-b4de-2b5c3b89359e', repo: path.join(WS, 'clients/qms-guard'),   devKey: 'ascend-lc' },
 };
 
 async function fetchClientBrief(senderRole) {
@@ -401,10 +463,10 @@ async function fetchClientBrief(senderRole) {
     } catch { /* repo may not have git or no commits */ }
   }
 
-  // 2. Active Supabase tasks for this client
-  if (clientInfo.id && SUPABASE_KEY) {
+  // 2. Active Supabase tasks for this client (tagged by devKey slug)
+  if (clientInfo.devKey && SUPABASE_KEY) {
     try {
-      const tasksUrl = `${SUPABASE_URL}/rest/v1/tasks?client_id=eq.${clientInfo.id}&status=in.(todo,in_progress)&order=priority.desc&limit=8`;
+      const tasksUrl = `${SUPABASE_URL}/rest/v1/tasks?tags=cs.{${clientInfo.devKey}}&status=in.(todo,in_progress)&order=priority.desc&limit=8`;
       const resp = await fetch(tasksUrl, {
         headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
       });
@@ -419,72 +481,622 @@ async function fetchClientBrief(senderRole) {
     } catch { /* */ }
   }
 
-  // 3. DEV_STATUS snippet for this client
+  // 3. DEV_STATUS — read from the client's own repo (written nightly by update-dev-status.sh)
   try {
-    const devStatus = fs.readFileSync(path.join(WS, 'DEV_STATUS.md'), 'utf8');
-    const marker = clientInfo.devKey.toLowerCase();
-    const lines = devStatus.split('\n');
-    const idx = lines.findIndex(l => l.toLowerCase().includes(marker));
-    if (idx !== -1) {
-      const snippet = lines.slice(idx, idx + 10).join('\n').trim();
-      if (snippet) sections.push(`Dev status:\n${snippet}`);
-    }
+    const devStatusPath = clientInfo.repo
+      ? path.join(clientInfo.repo, 'DEV_STATUS.md')
+      : path.join(WS, 'DEV_STATUS.md');
+    const devStatus = fs.readFileSync(devStatusPath, 'utf8');
+    // Strip markdown code fences and grab the first ~20 meaningful lines
+    const cleaned = devStatus.replace(/```[a-z]*\n?/g, '').trim();
+    const snippet = cleaned.split('\n').slice(0, 20).join('\n').trim();
+    if (snippet) sections.push(`Dev status:\n${snippet}`);
   } catch { /* */ }
+
+  // 4. Client context.md (relationship notes, key people, what matters to them)
+  if (clientInfo.repo) {
+    try {
+      const ctxPath = path.join(clientInfo.repo, 'context.md');
+      const ctx = fs.readFileSync(ctxPath, 'utf8');
+      // First 40 lines covers all the important context without overloading the prompt
+      const snippet = ctx.split('\n').slice(0, 40).join('\n').trim();
+      if (snippet) sections.push(`Client context:\n${snippet}`);
+    } catch { /* */ }
+  }
 
   if (!sections.length) return '';
   return `\n=== ${company.toUpperCase()} — CLIENT BRIEF (live as of ${today}) ===\n${sections.join('\n\n')}\n`;
 }
 
+// extractAndSaveReminder — runs on every owner message, detects explicit + implicit
+// reminders AND action tasks from free text. Saves to reminders.json or Supabase tasks.
 function extractAndSaveReminder(fromNum, senderName, userText, sophiaReply) {
-  // Quick pre-check — only bother if message smells like a reminder request
-  const reminderKeywords = /remind|reminder|don.t forget|follow.?up|check.?in|ping me|alert me/i;
-  if (!reminderKeywords.test(userText)) return;
-
   // Async — don't block the main flow
   (async () => {
     try {
       const now = new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' });
-      const prompt = `The user sent this message: "${userText}"
-Sophia replied: "${sophiaReply}"
-Current date/time (SAST): ${now}
+      const prompt = `You are a proactive assistant analysing a WhatsApp message for implicit actions.
 
-If the user is asking to be reminded of something, extract:
-- "message": what to remind them of (short, natural — as Sophia would say it)
-- "fireAt": ISO 8601 datetime in UTC when to send the reminder
-- "found": true
+User message: "${userText}"
+Sophia's reply: "${sophiaReply}"
+Current SAST time: ${now}
 
-If no reminder was set, return {"found": false}
+Extract any of the following (output JSON only, no markdown):
 
-Output only JSON.`;
+{
+  "reminder": {                  // if user wants a timed reminder (explicit or implicit)
+    "found": true/false,
+    "message": "...",            // short natural reminder text as Sophia would say it
+    "fireAt": "ISO8601 UTC"      // when to send it
+  },
+  "task": {                      // if there's an action item for Josh/Amalfi to do
+    "found": true/false,
+    "title": "...",
+    "priority": "normal|high|urgent",
+    "dueDate": "YYYY-MM-DD or null"
+  }
+}
+
+Rules:
+- A reminder is something time-based Josh wants to be alerted about ("remind me", "don't let me forget", "ping me at 3", "I have a thing Thursday", "follow up with X tomorrow")
+- A task is a clear to-do Josh or Amalfi should action ("I need to send X", "we must fix Y", "follow up with Z")
+- If nothing applies, return {"reminder":{"found":false},"task":{"found":false}}
+- Only extract if genuinely present — don't hallucinate
+- "message" for reminders should sound like Sophia talking: warm, direct, no filler`;
 
       const result = await runGPT(
-        'You are a reminder extraction assistant. Parse reminder requests and output JSON only.',
+        'You extract structured actions from messages. Output only valid JSON.',
         prompt, 'gpt-4o-mini'
       );
       if (!result) return;
 
-      const clean = result.trim().replace(/^```json|```$/g, '').trim();
+      const clean = result.trim().replace(/^```json\n?|```$/g, '').trim();
       const parsed = JSON.parse(clean);
-      if (!parsed.found || !parsed.fireAt || !parsed.message) return;
 
-      const reminders = loadReminders();
-      reminders.push({
-        id: Date.now().toString(),
-        to: fromNum,
-        name: senderName,
-        message: parsed.message,
-        fireAt: parsed.fireAt,
-        fired: false,
-        createdAt: new Date().toISOString(),
-      });
-      saveReminders(reminders);
-      log(`Reminder saved for ${senderName}: "${parsed.message}" at ${parsed.fireAt}`);
+      // Save reminder
+      if (parsed.reminder?.found && parsed.reminder.fireAt && parsed.reminder.message) {
+        const reminders = loadReminders();
+        reminders.push({
+          id: Date.now().toString(),
+          to: fromNum,
+          name: senderName,
+          message: parsed.reminder.message,
+          fireAt: parsed.reminder.fireAt,
+          fired: false,
+          createdAt: new Date().toISOString(),
+        });
+        saveReminders(reminders);
+        log(`Reminder saved for ${senderName}: "${parsed.reminder.message}" at ${parsed.reminder.fireAt}`);
+      }
+
+      // Save task to Supabase
+      if (parsed.task?.found && parsed.task.title && SUPABASE_KEY) {
+        const taskBody = JSON.stringify({
+          title: parsed.task.title,
+          status: 'todo',
+          priority: parsed.task.priority || 'normal',
+          ...(parsed.task.dueDate ? { due_date: parsed.task.dueDate } : {}),
+          source: 'sophia-whatsapp',
+        });
+        const url = new URL(`${SUPABASE_URL}/rest/v1/tasks`);
+        const req = https.request({
+          hostname: url.hostname, path: url.pathname, method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+            'Prefer': 'return=minimal',
+          },
+        }, (res) => { res.resume(); });
+        req.on('error', () => {});
+        req.write(taskBody);
+        req.end();
+        log(`Task created from free text: "${parsed.task.title}" [${parsed.task.priority}]`);
+      }
     } catch (e) {
-      log(`Reminder extraction error: ${e.message}`);
+      log(`Reminder/task extraction error: ${e.message}`);
     }
   })();
 }
-// ── End reminder extraction ───────────────────────────────────────────────────
+// ── End reminder/task extraction ───────────────────────────────────────────────
+
+// ── Google Meet scheduling (WhatsApp) ────────────────────────────────────────
+const MEET_KEYWORDS = /\b(schedule|set up|create|book|organise|organize).{0,20}(meet(ing)?|call|google meet|video call|zoom|hangout)|google meet|schedule.{0,10}(a |the )?(call|catch.?up|sync|standup|check.?in)\b/i;
+
+async function handleMeetingSchedule(chatId, userText) {
+  if (!clientReady) return false;
+
+  await client.sendMessage(chatId, '📅 On it — let me parse the details...');
+
+  // GPT-4o-mini to extract meeting params from free text
+  const today = new Date().toLocaleDateString('en-ZA', { timeZone: 'Africa/Johannesburg', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Johannesburg' }); // YYYY-MM-DD
+
+  const extracted = await runGPT(
+    `You are a calendar assistant. Extract meeting details from the user's message. Today is ${today} (${todayISO}, SAST UTC+2).
+Return ONLY valid JSON with these fields:
+- title: string (meeting title/summary)
+- date: string (YYYY-MM-DD, interpret relative dates like "tomorrow", "Tuesday", etc.)
+- time: string (HH:MM in 24h SAST, default "10:00" if not specified)
+- duration: number (minutes, default 60)
+- attendees: array of strings (email addresses — include any emails mentioned)
+- description: string or null
+If you cannot determine a date, use null for date.`,
+    userText,
+    'gpt-4o-mini'
+  );
+
+  let params;
+  try {
+    const clean = (extracted || '').replace(/```json\n?|\n?```/g, '').trim();
+    params = JSON.parse(clean);
+  } catch {
+    await client.sendMessage(chatId, "❌ Couldn't parse meeting details. Try: \"Schedule a meet with john@example.com on Tuesday at 2pm, 1 hour, about Q1 review\"");
+    return true;
+  }
+
+  if (!params.date) {
+    await client.sendMessage(chatId, '❓ What date should I schedule this for? (e.g. "Tuesday" or "2026-03-10")');
+    return true;
+  }
+  if (!params.attendees || params.attendees.length === 0) {
+    await client.sendMessage(chatId, '❓ Who should I invite? Please include their email address(es).');
+    return true;
+  }
+
+  // Build RFC3339 times in SAST (UTC+2)
+  const [h, m] = (params.time || '10:00').split(':').map(Number);
+  const startMs = new Date(`${params.date}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00+02:00`);
+  const endMs   = new Date(startMs.getTime() + (params.duration || 60) * 60000);
+  const fromStr = startMs.toISOString().slice(0, 19) + '+02:00';
+  const toStr   = endMs.toISOString().slice(0, 19) + '+02:00';
+
+  const attendeeStr = params.attendees.join(',');
+
+  // Build gog command
+  const gogArgs = [
+    'calendar', 'create', 'primary',
+    '--account', 'josh@amalfiai.com',
+    '--summary', params.title || 'Meeting',
+    '--from', fromStr,
+    '--to', toStr,
+    '--attendees', attendeeStr,
+    '--with-meet',
+    '--send-updates', 'all',
+    '--json', '--results-only', '--no-input',
+    '-y',
+  ];
+  if (params.description) gogArgs.push('--description', params.description);
+
+  const result = spawnSync('gog', gogArgs, {
+    encoding: 'utf8', timeout: 20000,
+    env: { ...process.env, HOME: '/Users/henryburton', PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin' },
+  });
+
+  if (result.status !== 0) {
+    log(`[meet] gog error: ${result.stderr}`);
+    await client.sendMessage(chatId, `❌ Calendar error: ${(result.stderr || 'unknown error').slice(0, 200)}`);
+    return true;
+  }
+
+  let event;
+  try { event = JSON.parse(result.stdout); } catch { event = {}; }
+
+  const meetLink = event.hangoutLink || event.conferenceData?.entryPoints?.[0]?.uri || null;
+  const eventDate = startMs.toLocaleDateString('en-ZA', { timeZone: 'Africa/Johannesburg', weekday: 'long', day: 'numeric', month: 'long' });
+  const eventTime = startMs.toLocaleTimeString('en-ZA', { timeZone: 'Africa/Johannesburg', hour: '2-digit', minute: '2-digit', hour12: false });
+
+  let reply = `✅ *${params.title || 'Meeting'} scheduled*\n\n`;
+  reply += `📅 ${eventDate} at ${eventTime} SAST\n`;
+  reply += `⏱ ${params.duration || 60} minutes\n`;
+  reply += `👥 ${params.attendees.join(', ')}\n`;
+  if (meetLink) reply += `\n🔗 *Meet link:* ${meetLink}`;
+  reply += `\n\nInvites sent to all attendees.`;
+
+  await client.sendMessage(chatId, reply);
+  return true;
+}
+
+// ── Flight search + booking (WhatsApp) ───────────────────────────────────────
+const PENDING_FLIGHT_FILE = path.join(WS, `tmp/pending-flight-wa.json`);
+const FLIGHT_KEYWORDS = /\b(flight|fly|flying|flights?|book.?a.?flight|find.?(me.?a?|a).?flight|search.?flight|cheapest.*(flight|fly)|ticket|tickets?|airport|airfare|one.?way|return.?flight|round.?trip)\b/i;
+
+function loadPendingFlight() {
+  try { return JSON.parse(fs.readFileSync(PENDING_FLIGHT_FILE, 'utf8')); } catch { return null; }
+}
+
+function savePendingFlight(data) {
+  try { fs.writeFileSync(PENDING_FLIGHT_FILE, JSON.stringify(data, null, 2)); } catch { /* */ }
+}
+
+function clearPendingFlight() {
+  try { fs.unlinkSync(PENDING_FLIGHT_FILE); } catch { /* */ }
+}
+
+const IATA = {
+  'cape town': 'CPT', 'cpt': 'CPT', 'johannesburg': 'JNB', 'joburg': 'JNB', 'jnb': 'JNB',
+  'or tambo': 'JNB', 'durban': 'DUR', 'dur': 'DUR', 'king shaka': 'DUR',
+  'port elizabeth': 'PLZ', 'gqeberha': 'PLZ', 'plz': 'PLZ',
+  'east london': 'ELS', 'els': 'ELS', 'george': 'GRJ', 'grj': 'GRJ',
+  'bloemfontein': 'BFN', 'bfn': 'BFN', 'lanseria': 'HLA', 'hla': 'HLA',
+};
+
+async function parseFlightQuery(userText) {
+  const now = new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' });
+  const result = await runGPT(
+    'You extract flight search parameters from natural language. Output only JSON.',
+    `Parse this flight request. Today is ${now} (SAST).
+Message: "${userText}"
+
+Output JSON:
+{
+  "from": "IATA code (CPT/JNB/DUR/PLZ/ELS/GRJ/BFN/HLA) — default CPT if not specified",
+  "to": "IATA code",
+  "date": "YYYY-MM-DD",
+  "return_date": "YYYY-MM-DD or null",
+  "adults": 1,
+  "airline": "flysafair|lift|both — default both",
+  "time_pref": "morning|midday|afternoon|evening|null",
+  "price_pref": "cheapest|specific — default cheapest"
+}
+
+Rules:
+- "next Thursday" = resolve to actual date
+- "Friday" without qualifier = this coming Friday
+- "morning" = 06:00-11:00, "midday" = 11:00-14:00, "afternoon" = 14:00-18:00, "evening" = 18:00+
+- If destination unclear, return {"error": "need more info"}`, 'gpt-4o-mini');
+
+  if (!result) return null;
+  const clean = result.trim().replace(/^```json\n?|```$/g, '').trim();
+  return JSON.parse(clean);
+}
+
+function formatFlightResults(safairFlights, liftFlights, params) {
+  const { from, to, date, return_date, adults, time_pref } = params;
+  const dateLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
+  const paxLabel = adults > 1 ? ` | ${adults} pax` : '';
+
+  const lines = [`✈️ *${from} → ${to} | ${dateLabel}${paxLabel}*`];
+  if (return_date) {
+    const retLabel = new Date(return_date + 'T12:00:00').toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
+    lines[0] += ` (return ${retLabel})`;
+  }
+  lines.push('');
+
+  let idx = 1;
+  const all = [];
+
+  if (safairFlights?.length) {
+    lines.push('*FlySafair:*');
+    let shown = safairFlights;
+    if (time_pref) {
+      const [h1, h2] = { morning: [6,11], midday: [11,14], afternoon: [14,18], evening: [18,24] }[time_pref] || [0,24];
+      const filtered = shown.filter(f => { const h = parseInt((f.departure||'00').split(':')[0]); return h >= h1 && h < h2; });
+      if (filtered.length) shown = filtered;
+    }
+    shown.slice(0, 5).forEach(f => {
+      const price = f.price || '?';
+      const priceNum = f.priceNum || parseInt(price.replace(/\D/g,'')) || 9999;
+      lines.push(`${idx}. ${f.flight} ${f.departure}→${f.arrival} — *${price}*`);
+      all.push({ idx: idx++, ...f, airline: 'flysafair', priceNum });
+    });
+    lines.push('');
+  }
+
+  if (liftFlights?.length) {
+    lines.push('*Lift:*');
+    let shown = liftFlights;
+    if (time_pref) {
+      const [h1, h2] = { morning: [6,11], midday: [11,14], afternoon: [14,18], evening: [18,24] }[time_pref] || [0,24];
+      const filtered = shown.filter(f => { const h = parseInt((f.departure||'00').split(':')[0]); return h >= h1 && h < h2; });
+      if (filtered.length) shown = filtered;
+    }
+    shown.slice(0, 5).forEach(f => {
+      const price = f.price || '?';
+      const priceNum = f.priceNum || parseInt(price.replace(/\D/g,'')) || 9999;
+      lines.push(`${idx}. ${f.flight} ${f.departure}→${f.arrival} — *${price}*`);
+      all.push({ idx: idx++, ...f, airline: 'lift', priceNum });
+    });
+    lines.push('');
+  }
+
+  if (!all.length) return { text: `No flights found for ${from} → ${to} on ${dateLabel}.`, options: [] };
+
+  const cheapest = all.sort((a, b) => a.priceNum - b.priceNum)[0];
+  lines.push(`💰 Cheapest: *${cheapest.price}* (option ${cheapest.idx})`);
+  lines.push(`\nReply with a number or flight code to book (e.g. "book 2" or "book ${cheapest.flight}"), or "cancel".`);
+
+  return { text: lines.join('\n'), options: all };
+}
+
+async function handleFlightSearch(chatId, ownerNum, userText) {
+  if (!clientReady) return;
+
+  // Immediate acknowledgement
+  await client.sendMessage(chatId, '✈️ Searching flights, give me a sec...');
+
+  try {
+    const params = await parseFlightQuery(userText);
+    if (!params || params.error) {
+      await client.sendMessage(chatId, `I need a bit more info — where are you flying to and when?`);
+      return;
+    }
+
+    // Calendar conflict check
+    let calendarNote = '';
+    try {
+      const calResult = spawnSync('/bin/bash', [path.join(WS, 'scripts/sophia-calendar.sh'), 'list', params.date], {
+        encoding: 'utf8', timeout: 15000, env: { ...process.env, HOME: '/Users/henryburton', PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin' },
+      });
+      const calOut = JSON.parse(calResult.stdout || '{}');
+      if (calOut.ok && calOut.result && calOut.result.toLowerCase() !== 'no events') {
+        calendarNote = `\n📅 *Calendar note:* You have events on ${params.date} — check for conflicts.`;
+      }
+    } catch { /* calendar check is best-effort */ }
+
+    // Run FlySafair + Lift searches in parallel
+    const FLIGHT_SCRIPT = path.join(WS, 'scripts/flights/search-flights.mjs');
+    const childEnv = { ...process.env, HOME: '/Users/henryburton', PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin' };
+
+    const runSearch = (airline) => {
+      const args = ['--from', params.from, '--to', params.to, '--date', params.date, '--airline', airline, '--adults', String(params.adults || 1)];
+      if (params.return_date) args.push('--return', params.return_date);
+      const r = spawnSync('node', [FLIGHT_SCRIPT, ...args], { env: childEnv, timeout: 60000, encoding: 'utf8' });
+      try { return JSON.parse(r.stdout || '{}'); } catch { return { ok: false, flights: [] }; }
+    };
+
+    const doLift = ['CPT','JNB','DUR'].includes(params.from) && ['CPT','JNB','DUR'].includes(params.to);
+    const [safairRes, liftRes] = await Promise.all([
+      new Promise(res => res(runSearch('flysafair'))),
+      doLift ? new Promise(res => res(runSearch('lift'))) : Promise.resolve({ ok: false, flights: [] }),
+    ]);
+
+    const safairFlights = safairRes.flights || [];
+    const liftFlights   = liftRes.flights   || [];
+
+    if (!safairFlights.length && !liftFlights.length) {
+      await client.sendMessage(chatId, `No flights found for ${params.from} → ${params.to} on ${params.date}. Try a different date?`);
+      return;
+    }
+
+    const { text, options } = formatFlightResults(safairFlights, liftFlights, params);
+    await client.sendMessage(chatId, text + calendarNote);
+
+    // Save pending flight state
+    savePendingFlight({ params, options, searchedAt: new Date().toISOString() });
+
+  } catch (e) {
+    log(`Flight search error: ${e.message}`);
+    await client.sendMessage(chatId, `Flight search hit an error: ${e.message.slice(0, 100)}. Try again?`);
+  }
+}
+
+async function handleFlightBooking(chatId, ownerNum, userText, pending) {
+  const lower = userText.toLowerCase().trim();
+
+  // Cancel
+  if (/^cancel|^no thanks|^forget it|^never mind/i.test(lower)) {
+    clearPendingFlight();
+    await client.sendMessage(chatId, 'Booking cancelled. Let me know if you want to search again.');
+    return true;
+  }
+
+  // Match by number "book 2", "1", "option 3"
+  let chosen = null;
+  const numMatch = lower.match(/\b(\d+)\b/);
+  if (numMatch) {
+    const idx = parseInt(numMatch[1]);
+    chosen = pending.options.find(o => o.idx === idx);
+  }
+
+  // Match by flight code "book FA603", "the GE124"
+  if (!chosen) {
+    const codeMatch = lower.match(/\b([A-Z]{2}\d{2,4}|GE\d{3,4}|FA\d{3,4})\b/i);
+    if (codeMatch) {
+      const code = codeMatch[1].toUpperCase();
+      chosen = pending.options.find(o => (o.flight || '').toUpperCase() === code);
+    }
+  }
+
+  // "cheapest" or "yes" = pick cheapest
+  if (!chosen && /\b(cheapest|yes|book it|go ahead|confirm|do it)\b/i.test(lower)) {
+    chosen = [...pending.options].sort((a, b) => a.priceNum - b.priceNum)[0];
+  }
+
+  if (!chosen) return false; // not a booking reply — let normal response handle it
+
+  clearPendingFlight();
+  await client.sendMessage(chatId, `📋 Booking *${chosen.flight}* (${chosen.departure}→${chosen.arrival}, ${chosen.price}) on ${chosen.airline === 'flysafair' ? 'FlySafair' : 'Lift'}. Give me a minute...`);
+
+  // Run book-flight.mjs
+  const BOOK_SCRIPT = path.join(WS, 'scripts/flights/book-flight.mjs');
+  const { params } = pending;
+  const bookArgs = [
+    '--airline', chosen.airline,
+    '--from', params.from, '--to', params.to,
+    '--date', params.date,
+    '--flight', chosen.flight,
+    '--price', chosen.price,
+    '--adults', String(params.adults || 1),
+  ];
+  if (params.return_date) bookArgs.push('--return', params.return_date);
+
+  const childEnv = { ...process.env, HOME: '/Users/henryburton', PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin' };
+  const result = spawnSync('node', [BOOK_SCRIPT, ...bookArgs], { env: childEnv, timeout: 120000, encoding: 'utf8' });
+
+  try {
+    const out = JSON.parse(result.stdout || '{}');
+    if (out.ok) {
+      await client.sendMessage(chatId, `✅ *Booked!* ${out.confirmation || ''}\n${chosen.flight} ${chosen.departure}→${chosen.arrival} | ${chosen.price}`);
+    } else {
+      await client.sendMessage(chatId, `❌ Booking failed: ${out.error || 'unknown error'}. Try booking manually on the airline site.`);
+    }
+  } catch {
+    await client.sendMessage(chatId, `❌ Booking script error. Try booking manually.`);
+  }
+
+  return true;
+}
+// ── End flight system ─────────────────────────────────────────────────────────
+
+// ── Group/DM action extraction ────────────────────────────────────────────────
+// Runs on every message (group + DM) to pull out tasks, reminders, and assignments.
+// Fully async — never blocks the main response pipeline.
+// Smart keyword pre-filter keeps GPT-4o-mini costs negligible.
+
+const ACTION_EXTRACT_RE = /\b(please|can you|could you|need to|must|should|have to|going to|will you|by (monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next week|end of (day|week|month)|eod)|deadline|asap|urgent|remind|don.t forget|follow.?up|check.?in|ping|fix|build|send|update|review|approve|sort out|look into|schedule|book|call|meet|invoice|pay|submit|upload|deploy|launch|finish|complete|deliver|prepare|write|create|add|remove|change|check)\b/i;
+
+const GROUP_CLIENT_MAP = {
+  'race technik':        { id: 'ed045bcb-100f-4fc4-8623-2befcf2c8c14', slug: 'race-technik' },
+  'vanta':               { id: 'd2a6eb7c-014c-43e6-9a5e-e0d5876c21cc', slug: 'vanta-studios' },
+  'ambassadex':          { id: null,                                     slug: 'ambassadex' },
+  'project ozayr':       { id: null,                                     slug: 'ambassadex' },
+  'favorite':            { id: 'fb9724b4-1d11-43c4-a76c-e82f7b820c11', slug: 'favorite-logistics' },
+  'favlog':              { id: 'fb9724b4-1d11-43c4-a76c-e82f7b820c11', slug: 'favorite-logistics' },
+  'ascend':              { id: 'c465aa44-519b-4b35-b4de-2b5c3b89359e', slug: 'ascend-lc' },
+};
+
+function resolveGroupClient(groupName) {
+  const lower = (groupName || '').toLowerCase();
+  for (const [key, val] of Object.entries(GROUP_CLIENT_MAP)) {
+    if (lower.includes(key)) return val;
+  }
+  return null;
+}
+
+const TEAM_MEMBERS = ['josh', 'salah', 'masara'];
+
+function inferAssignee(text, senderName) {
+  const lower = text.toLowerCase();
+  // Explicit mentions
+  if (/\bjosh\b/i.test(lower)) return 'josh';
+  if (/\bsalah\b/i.test(lower)) return 'salah';
+  if (/\bsophia\b|\bamalfi\b|\bcan you\b|\bplease\b|\bwill you\b/i.test(lower)) return 'sophia';
+  // Team member saying "I need to..." → assigned to them
+  const senderLower = (senderName || '').toLowerCase();
+  if (/\bi (need|must|will|am going|have to)\b/i.test(lower)) {
+    if (TEAM_MEMBERS.includes(senderLower)) return senderLower;
+  }
+  return 'team';
+}
+
+function extractGroupActions(fromNum, senderName, groupName, userText, isTeamSender) {
+  // Cheap pre-filter — skip if no actionable language
+  if (!ACTION_EXTRACT_RE.test(userText)) return;
+  // Skip very short messages
+  if (userText.trim().length < 15) return;
+
+  (async () => {
+    try {
+      const now = new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' });
+      const clientInfo = resolveGroupClient(groupName);
+
+      const prompt = `You are extracting tasks and reminders from a WhatsApp message in ${groupName ? `the "${groupName}" group` : 'a DM'}.
+
+Sender: ${senderName}${isTeamSender ? ' (Amalfi AI team)' : ' (client/contact)'}
+Message: "${userText}"
+Current SAST time: ${now}
+
+Extract any tasks or reminders. Output JSON only:
+
+{
+  "task": {
+    "found": true/false,
+    "title": "concise action item title",
+    "assignee": "josh|salah|sophia|team|<name>",
+    "priority": "normal|high|urgent",
+    "dueDate": "YYYY-MM-DD or null",
+    "notes": "brief context or null"
+  },
+  "reminder": {
+    "found": true/false,
+    "message": "reminder text as Sophia would send it",
+    "to": "${fromNum}",
+    "fireAt": "ISO8601 UTC or null"
+  }
+}
+
+Rules:
+- Task: a clear action item someone needs to do ("fix the login bug", "send invoice to client", "deploy by Friday")
+- Reminder: time-based ("remind me at 3pm", "ping me before the meeting", "don't let me forget Thursday")
+- assignee: who should do the task — infer from message ("can you build X" → sophia/team, "I need to call X" → sender, "Josh can you..." → josh)
+- priority: urgent if ASAP/urgent/today, high if deadline this week, normal otherwise
+- If nothing actionable, return {"task":{"found":false},"reminder":{"found":false}}`;
+
+      const result = await runGPT(
+        'Extract structured tasks and reminders from messages. Output only valid JSON.',
+        prompt, 'gpt-4o-mini'
+      );
+      if (!result) return;
+
+      const clean = result.trim().replace(/^```json\n?|```$/g, '').trim();
+      const parsed = JSON.parse(clean);
+
+      // ── Save task to Supabase ──────────────────────────────────────────────
+      if (parsed.task?.found && parsed.task.title) {
+        const assignee = parsed.task.assignee || inferAssignee(userText, senderName);
+        const taskBody = JSON.stringify({
+          title: parsed.task.title,
+          status: 'todo',
+          priority: parsed.task.priority || 'normal',
+          ...(parsed.task.dueDate ? { due_date: parsed.task.dueDate } : {}),
+          ...(clientInfo?.id ? { client_id: clientInfo.id } : {}),
+          source: `sophia-wa-${isTeamSender ? 'team' : 'client'}`,
+          notes: [
+            parsed.task.notes,
+            `From: ${senderName} in ${groupName || 'DM'}`,
+          ].filter(Boolean).join(' | '),
+          assigned_to: assignee,
+        });
+
+        if (SUPABASE_KEY) {
+          const url = new URL(`${SUPABASE_URL}/rest/v1/tasks`);
+          const req = https.request({
+            hostname: url.hostname, path: url.pathname, method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${SUPABASE_KEY}`,
+              'Prefer': 'return=minimal',
+            },
+          }, (res) => { res.resume(); });
+          req.on('error', () => {});
+          req.write(taskBody);
+          req.end();
+        }
+
+        // Proactive WA alert to Josh
+        const waMsg = `📋 *Task captured*\n*${parsed.task.title}*\nAssignee: ${assignee} | Priority: ${parsed.task.priority || 'normal'}${parsed.task.dueDate ? ` | Due: ${parsed.task.dueDate}` : ''}\nFrom: ${senderName}${groupName ? ` in ${groupName}` : ''}`;
+        const pq = loadProactiveQueue();
+        pq.push({ to: OWNER_NUMBER, message: waMsg, sendAt: null });
+        saveProactiveQueue(pq);
+
+        log(`Group task extracted: "${parsed.task.title}" → ${assignee} [${parsed.task.priority || 'normal'}]`);
+      }
+
+      // ── Save reminder ──────────────────────────────────────────────────────
+      if (parsed.reminder?.found && parsed.reminder.fireAt && parsed.reminder.message) {
+        const reminderTo = parsed.reminder.to || fromNum;
+        const reminders = loadReminders();
+        reminders.push({
+          id: Date.now().toString(),
+          to: reminderTo,
+          name: senderName,
+          message: parsed.reminder.message,
+          fireAt: parsed.reminder.fireAt,
+          fired: false,
+          createdAt: new Date().toISOString(),
+        });
+        saveReminders(reminders);
+        log(`Group reminder saved: "${parsed.reminder.message}" → ${reminderTo} at ${parsed.reminder.fireAt}`);
+      }
+    } catch (e) {
+      log(`Group action extraction error: ${e.message}`);
+    }
+  })();
+}
+
+// ── End group/DM action extraction ───────────────────────────────────────────
 
 // ── Owner action execution ────────────────────────────────────────────────────
 // Called only for Josh (isOwner). Detects executable instructions in his message
@@ -501,7 +1113,7 @@ async function runCalendarScript(...args) {
 }
 
 async function extractAndExecuteOwnerActions(userText, contacts) {
-  const actionKeywords = /\b(send|message|text|whatsapp|dm|reach\s+out|create\s+task|add\s+task|make\s+a\s+task|introduce|nudge|follow.?up|schedule|calendar|meeting|call|book|event|meet|cancel|reschedule|move|postpone|what.?s on|my calendar|today.?s agenda|check my)\b/i;
+  const actionKeywords = /\b(send|email|message|text|whatsapp|dm|reach\s+out|create\s+task|add\s+task|make\s+a\s+task|introduce|nudge|follow.?up|schedule|calendar|meeting|call|book|event|meet|cancel|reschedule|move|postpone|what.?s on|my calendar|today.?s agenda|check my)\b/i;
   if (!actionKeywords.test(userText)) return null;
 
   const today = new Date().toLocaleDateString('en-ZA', { timeZone: 'Africa/Johannesburg' });
@@ -518,6 +1130,7 @@ Extract any executable actions. Output a JSON array only, or [] if none.
 
 Supported action types:
 - { "type": "send_whatsapp", "to": "+27XXXXXXXXX", "name": "PersonName", "briefing": "detailed description of what the message should say, the tone, and all context needed to write it" }
+- { "type": "send_email", "to": "email@address.com", "name": "PersonName", "subject": "email subject", "briefing": "detailed description of what the email should say and all context needed", "is_client": true/false }
 - { "type": "create_task", "title": "...", "description": "...", "priority": "normal|high|urgent", "due_date": "YYYY-MM-DD or null" }
 - { "type": "list_calendar", "date": "today|tomorrow|monday|YYYY-MM-DD" }
 - { "type": "create_event", "title": "...", "date": "today|tomorrow|monday|YYYY-MM-DD", "start_time": "HH:MM", "end_time": "HH:MM or null", "with_meet": true/false, "attendees": "email1,email2 or null", "description": "optional" }
@@ -527,6 +1140,7 @@ Supported action types:
 Rules:
 - Only extract actions with a clear, concrete recipient or outcome
 - For send_whatsapp: use the exact phone number from the contacts list
+- For send_email: is_client = true if the recipient is a client or external person (not Amalfi AI team)
 - "schedule a meeting", "create a calendar event", "block time" = create_event
 - "what is on my calendar", "what do I have today" = list_calendar
 - "cancel my X meeting", "delete the X event" = delete_event
@@ -592,6 +1206,52 @@ Write the WhatsApp message. Natural, warm. No hyphens. No bullet-point walls.`;
       } catch (e) {
         results.push(`Error sending to ${action.to}: ${e.message}`);
         log(`Owner action error (send_whatsapp): ${e.message}`);
+      }
+
+    } else if (action.type === 'send_email' && action.to && action.briefing) {
+      try {
+        // Client emails go from josh@amalfiai.com — they should come from the founder, not Sophia.
+        // Internal/non-client emails go from sophia@amalfiai.com.
+        const fromAccount = action.is_client ? 'josh@amalfiai.com' : 'sophia@amalfiai.com';
+
+        const emailPrompt = `You are drafting a professional email on behalf of ${action.is_client ? 'Josh Burton (josh@amalfiai.com), founder of Amalfi AI' : 'Sophia, Amalfi AI client success manager'}.
+Recipient: ${action.name || action.to} <${action.to}>
+Subject: ${action.subject || '(no subject given)'}
+Instruction: ${action.briefing}
+
+Write the email body only (no Subject line). Professional, warm, no hyphens. No markdown. Sign off appropriately.`;
+
+        const emailBody = await runGPT(
+          `You are an email writing assistant for ${action.is_client ? 'Josh Burton, founder of Amalfi AI' : 'Sophia at Amalfi AI'}. Write professional emails. No hyphens.`,
+          emailPrompt,
+          'gpt-4o'
+        );
+        if (!emailBody) {
+          results.push(`FAILED to generate email for ${action.name || action.to}`);
+        } else {
+          const gogArgs = [
+            'gmail', 'send',
+            '--account', fromAccount,
+            '--to', action.to,
+            '--subject', action.subject || '(no subject)',
+            '--body-html', emailBody.replace(/\n/g, '<br>'),
+            '--no-input', '-y',
+          ];
+          const r = spawnSync('gog', gogArgs, {
+            encoding: 'utf8', timeout: 20000,
+            env: { ...process.env, HOME: '/Users/henryburton', PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin' },
+          });
+          if (r.status !== 0) {
+            results.push(`Email send failed: ${(r.stderr || '').slice(0, 150)}`);
+            log(`Owner action email error: ${r.stderr}`);
+          } else {
+            results.push(`Email sent to ${action.name || action.to} from ${fromAccount}: "${action.subject || '(no subject)'}"`);
+            log(`Owner action: sent email to ${action.to} from ${fromAccount}`);
+          }
+        }
+      } catch (e) {
+        results.push(`Error sending email to ${action.to}: ${e.message}`);
+        log(`Owner action error (send_email): ${e.message}`);
       }
 
     } else if (action.type === 'create_task' && action.title) {
@@ -711,6 +1371,25 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
 
   if (!userText) return;
 
+  // ── Owner DM: check pending flight state first ────────────────────────────────
+  if (isOwner && !isGroup) {
+    const pendingFlight = loadPendingFlight();
+    if (pendingFlight) {
+      const handled = await handleFlightBooking(msg.from, fromNum, userText, pendingFlight);
+      if (handled) return;
+    }
+    // Meeting scheduling request
+    if (MEET_KEYWORDS.test(userText)) {
+      await handleMeetingSchedule(msg.from, userText);
+      return;
+    }
+    // New flight search request
+    if (FLIGHT_KEYWORDS.test(userText)) {
+      await handleFlightSearch(msg.from, fromNum, userText);
+      return;
+    }
+  }
+
   // Load contacts early — needed for quoted message resolution
   let contacts = {};
   try { contacts = JSON.parse(fs.readFileSync(CONTACTS_FILE, 'utf8')); } catch { /* */ }
@@ -755,6 +1434,16 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
     appendGroupHistory(resolveName(fromNum), userText + (quotedNote || ''), groupHistFile);
   }
   log(`Message from ${fromNum}${isGroup ? ` (group: "${detectedGroupName}")` : ''}: ${userText.slice(0, 80)}`);
+
+  // ── Proactive action extraction — runs on ALL messages before pre-filter ──────
+  // Extracts tasks/reminders from every message (group or DM), never blocks response.
+  {
+    const _exEntry  = contacts[fromNum] || contacts[`+${fromNum.replace(/^\+/, '')}`] || null;
+    const _exRole   = _exEntry?.role || '';
+    const _isTeamSender = isOwner || _exRole.includes('Amalfi AI');
+    const _exName   = _exEntry?.name || resolveName(fromNum);
+    extractGroupActions(fromNum, _exName, detectedGroupName, userText, _isTeamSender);
+  }
 
   // ── CODE-LEVEL PRE-FILTER — deterministic, no AI ─────────────────────────────
   // These rules are hard truths. If they fire, Sophia is silent. No API call made.
@@ -1095,8 +1784,8 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
   // Adaptive memory — async background update after each exchange
   updatePersonMemory(senderName, userText, response);
 
-  // Reminder extraction — detect if user set a reminder, persist it
-  extractAndSaveReminder(fromNum, senderName, userText, response);
+  // Free-text analysis — extract reminders + tasks from all owner messages
+  if (isOwner) extractAndSaveReminder(fromNum, senderName, userText, response);
 
   // Daily log
   try {
@@ -1379,6 +2068,9 @@ client.on('ready', () => {
   // Build LID map after brief settle time, then refresh every 2h
   setTimeout(() => buildLidMap(), 8000);
   setInterval(() => buildLidMap(), 2 * 60 * 60 * 1000);
+  // Proactive: check reminders + queued outbound messages every 60s
+  setInterval(() => checkAndFireProactive(), 60 * 1000);
+  setTimeout(() => checkAndFireProactive(), 15 * 1000); // first check after 15s settle
 });
 
 client.on('disconnected', (reason) => {
