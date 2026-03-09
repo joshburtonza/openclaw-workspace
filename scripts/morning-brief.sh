@@ -1110,11 +1110,13 @@ print(t.strip())
 ')
 
   export AUTO_TASKS_JSON
+  export SUPABASE_URL="${SUPABASE_URL:-${AOS_SUPABASE_URL:-}}"
+  export SUPABASE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
   python3 - <<'AUTOTASKPY'
 import json, os, requests
 
-SUPABASE_URL = os.environ['SUPABASE_URL']
-KEY = os.environ['SUPABASE_KEY']
+SUPABASE_URL = os.environ.get('SUPABASE_URL') or os.environ.get('AOS_SUPABASE_URL', '')
+KEY = os.environ.get('SUPABASE_KEY') or os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
 data = os.environ.get('AUTO_TASKS_JSON', '')
 
 try:
@@ -1218,11 +1220,13 @@ fi
 
 SALAH_CHAT_ID="${TELEGRAM_SALAH_CHAT_ID:-8597169435}"
 
+export SUPABASE_URL="${SUPABASE_URL:-${AOS_SUPABASE_URL:-}}"
+export KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 SALAH_BRIEF=$(python3 - <<'SALAHPY'
 import json, urllib.request, os, datetime
 
-KEY = os.environ['KEY']
-SUPABASE_URL = os.environ['SUPABASE_URL']
+KEY = os.environ.get('KEY') or os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+SUPABASE_URL = os.environ.get('SUPABASE_URL') or os.environ.get('AOS_SUPABASE_URL', '')
 headers = {'apikey': KEY, 'Authorization': 'Bearer ' + KEY}
 
 today = datetime.date.today()

@@ -53,6 +53,12 @@ ONE_SHOT_AGENTS=(
   "discord-morning-nudge"
   "tiktok-live-reminder"
   "aos-value-report"
+  "sophia-daily-review"
+  "sophia-monday-report"
+  "sophia-weekly-email-drafts"
+  "sophia-technik-brief"
+  "sophia-learns"
+  "update-dev-status"
 )
 
 # ── Restart circuit breaker ───────────────────────────────────────────────────
@@ -63,13 +69,16 @@ mkdir -p "$WORKSPACE/tmp"
 
 circuit_tripped() {
   # Returns 0 (true) if circuit is tripped for this agent, 1 (false) if ok to restart
+  # Restart circuit: 2 attempts per 30 min, then suppressed
+  # Alert circuit: once alerted, suppressed for 24 hours
   local agent="$1"
   python3 - <<PY
 import json, time, os
 f = "$CIRCUIT_FILE"
 agent = "$agent"
 now = time.time()
-window = 1800  # 30 minutes
+restart_window = 1800   # 30 min restart attempts
+alert_window   = 86400  # 24 hr alert suppression
 
 try:
     with open(f) as fp:
@@ -77,13 +86,18 @@ try:
 except Exception:
     data = {}
 
-rec = data.get(agent, {"count": 0, "window_start": now})
-# Reset window if it's expired
-if now - rec.get("window_start", now) > window:
-    rec = {"count": 0, "window_start": now}
+rec = data.get(agent, {"count": 0, "window_start": now, "last_alerted": 0})
+
+# Reset restart window if expired
+if now - rec.get("window_start", now) > restart_window:
+    rec["count"] = 0
+    rec["window_start"] = now
     data[agent] = rec
 
+# Tripped if: restart attempts exhausted OR already alerted in last 24h
 if rec.get("count", 0) >= 2:
+    print("tripped")
+elif now - rec.get("last_alerted", 0) < alert_window:
     print("tripped")
 else:
     print("ok")
@@ -97,7 +111,7 @@ import json, time, os
 f = "$CIRCUIT_FILE"
 agent = "$agent"
 now = time.time()
-window = 1800
+restart_window = 1800
 
 try:
     with open(f) as fp:
@@ -105,11 +119,13 @@ try:
 except Exception:
     data = {}
 
-rec = data.get(agent, {"count": 0, "window_start": now})
-if now - rec.get("window_start", now) > window:
-    rec = {"count": 0, "window_start": now}
+rec = data.get(agent, {"count": 0, "window_start": now, "last_alerted": 0})
+if now - rec.get("window_start", now) > restart_window:
+    rec["count"] = 0
+    rec["window_start"] = now
 
 rec["count"] = rec.get("count", 0) + 1
+rec["last_alerted"] = now  # record that we are alerting now
 data[agent] = rec
 
 os.makedirs(os.path.dirname(f), exist_ok=True)
