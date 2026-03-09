@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# Kill switch check — bail early if Vanta OS is paused
+_KS=$(curl -s \
+  "https://afmpbtynucpbglwtbfuz.supabase.co/rest/v1/kill_switch?id=eq.d2a6eb7c-014c-43e6-9a5e-e0d5876c21cc&select=status" \
+  -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['status'] if d else 'running')" 2>/dev/null)
+if [[ "$_KS" == "stopped" ]]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Vanta OS kill switch active — skipping run"
+  exit 0
+fi
+
 # vanta-outreach.sh
 # Queues personalized Sophia emails to quality-verified Vanta leads (score >= 50).
 # Uses Claude to generate a bespoke intro for each photographer based on their
@@ -92,8 +101,9 @@ def tg_send(text):
 
 today_start = datetime.datetime.utcnow().strftime('%Y-%m-%dT00:00:00Z')
 try:
-    sent_today = supa_get('vanta_leads', {
-        'outreach_status': 'eq.emailed',
+    sent_today = supa_get('leads', {
+        'client_id': f'eq.{VANTA_CLIENT_ID}',
+        'status': 'eq.sent',
         'last_contacted_at': f'gte.{today_start}',
         'select': 'id',
     })
@@ -111,11 +121,12 @@ print(f'[outreach] {already_sent} sent today, cap={DAILY_CAP}, sending up to {re
 # ── Fetch queued leads ────────────────────────────────────────────────────────
 
 try:
-    leads = supa_get('vanta_leads', {
-        'outreach_status': 'eq.queued',
+    leads = supa_get('leads', {
+        'client_id': f'eq.{VANTA_CLIENT_ID}',
+        'status': 'eq.queued',
         'order': 'quality_score.desc',
         'limit': str(remaining_cap),
-        'select': 'id,instagram_handle,full_name,business_name,email,website,location_city,specialties,bio_text,follower_count,engagement_rate,quality_score',
+        'select': 'id,twitter_url,first_name,last_name,company,email,website,location_city,industry,headline,company_description,quality_score,ai_analysis',
     })
 except Exception as e:
     print(f'[outreach] Could not fetch leads: {e}', file=sys.stderr)
@@ -131,11 +142,11 @@ print(f'[outreach] {len(leads)} leads to process.')
 
 def generate_email(lead):
     """Use Claude Haiku to generate a personalized outreach email."""
-    handle   = lead.get('instagram_handle') or ''
-    name     = lead.get('full_name') or lead.get('business_name') or handle
+    handle   = (lead.get('twitter_url') or '').rstrip('/').split('/')[-1] or lead.get('company','')
+    name     = ' '.join(filter(None, [lead.get('first_name'), lead.get('last_name')])) or handle
     city     = lead.get('location_city') or 'South Africa'
-    specs    = lead.get('specialties') or []
-    bio      = (lead.get('bio_text') or '')[:200]
+    specs    = [s.strip() for s in (lead.get('industry') or 'photography').split(',')]
+    bio      = (lead.get('headline') or '')[:200]
     website  = lead.get('website') or ''
 
     spec_str = ', '.join(specs) if specs else 'photography'
@@ -227,10 +238,10 @@ for lead in leads:
         'body_html': body_html,
         'status': 'awaiting_approval',   # Josh approves before sending
         'analysis': json.dumps({
-            'ig_handle': lead.get('instagram_handle'),
+            'ig_handle': (lead.get('twitter_url') or '').rstrip('/').split('/')[-1],
             'quality_score': lead.get('quality_score'),
             'city': lead.get('location_city'),
-            'specialties': lead.get('specialties'),
+            'specialties': lead.get('industry'),
         }),
         'created_at': datetime.datetime.utcnow().isoformat() + 'Z',
     })
@@ -238,13 +249,13 @@ for lead in leads:
     eq_id = eq_row['id'] if eq_row and isinstance(eq_row, dict) else None
     now = datetime.datetime.utcnow().isoformat() + 'Z'
 
-    supa_patch('vanta_leads', lead['id'], {
-        'outreach_status': 'queued',   # stays queued until Josh approves + Sophia sends
-        'email_queue_id': eq_id,
+    supa_patch('leads', lead['id'], {
+        'status': 'awaiting_approval',
+        'notes': json.dumps({'email_queue_id': eq_id, 'ig_handle': (lead.get('twitter_url') or '').rstrip('/').split('/')[-1]}),
         'updated_at': now,
     })
 
-    handle = lead.get('instagram_handle', 'unknown')
+    handle = (lead.get('twitter_url') or '').rstrip('/').split('/')[-1] or 'unknown'
     print(f'[outreach] Queued email for {handle} ({lead["email"]}) — "{subject}"')
     queued += 1
     names_sent.append(f'{name} (@{handle})')

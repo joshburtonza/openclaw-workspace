@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vanta Studios — Mission Control</title>
+<style>
+  :root {
+    --bg: #0a0a0b;
+    --surface: #111114;
+    --surface2: #18181d;
+    --border: #222228;
+    --accent: #c8a96e;
+    --accent2: #e8c98e;
+    --text: #f0f0f0;
+    --muted: #666;
+    --green: #2ecc71;
+    --yellow: #f1c40f;
+    --red: #e74c3c;
+    --blue: #3498db;
+    --purple: #9b59b6;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif; min-height:100vh; overflow-x:hidden; }
+
+  /* Header */
+  .header { display:flex; align-items:center; justify-content:space-between; padding:20px 32px; border-bottom:1px solid var(--border); background:var(--surface); }
+  .logo { display:flex; align-items:center; gap:12px; }
+  .logo-mark { width:36px; height:36px; background:var(--accent); border-radius:8px; display:flex; align-items:center; justify-content:center; font-weight:800; color:#000; font-size:14px; letter-spacing:-0.5px; }
+  .logo-text { font-size:18px; font-weight:600; letter-spacing:-0.3px; }
+  .logo-sub { font-size:11px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-top:1px; }
+  .header-right { display:flex; align-items:center; gap:20px; }
+  .refresh-badge { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); }
+  .pulse { width:8px; height:8px; border-radius:50%; background:var(--green); animation:pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+  .refresh-countdown { font-variant-numeric:tabular-nums; }
+  .last-updated { font-size:11px; color:var(--muted); }
+
+  /* Stats bar */
+  .stats-bar { display:grid; grid-template-columns:repeat(6,1fr); gap:1px; background:var(--border); border-bottom:1px solid var(--border); }
+  .stat { background:var(--surface); padding:20px 24px; }
+  .stat-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:8px; }
+  .stat-value { font-size:28px; font-weight:700; letter-spacing:-1px; }
+  .stat-value.accent { color:var(--accent); }
+  .stat-value.green { color:var(--green); }
+  .stat-value.yellow { color:var(--yellow); }
+  .stat-value.blue { color:var(--blue); }
+  .stat-sub { font-size:11px; color:var(--muted); margin-top:4px; }
+
+  /* Pipeline */
+  .pipeline { display:grid; grid-template-columns:repeat(7,1fr); gap:1px; background:var(--border); min-height:calc(100vh - 200px); }
+  .column { background:var(--surface); display:flex; flex-direction:column; }
+  .col-header { padding:16px 16px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .col-title { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); }
+  .col-count { font-size:11px; font-weight:700; background:var(--surface2); color:var(--text); padding:2px 8px; border-radius:20px; }
+  .col-accent { height:2px; background:var(--border); margin:0 16px; border-radius:1px; }
+  .col-accent.new { background:#3498db44; }
+  .col-accent.verified { background:#9b59b644; }
+  .col-accent.queued { background:#f39c1244; }
+  .col-accent.approval { background:#e74c3c44; }
+  .col-accent.sent { background:#2ecc7144; }
+  .col-accent.replied { background:#c8a96e44; }
+  .col-accent.won { background:#27ae6044; }
+
+  .cards { flex:1; padding:12px; display:flex; flex-direction:column; gap:8px; overflow-y:auto; max-height:calc(100vh - 260px); }
+  .cards::-webkit-scrollbar { width:3px; }
+  .cards::-webkit-scrollbar-track { background:transparent; }
+  .cards::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+  .card { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:12px; cursor:pointer; transition:all 0.15s; }
+  .card:hover { border-color:var(--accent); transform:translateY(-1px); }
+  .card.approval { border-color:#e74c3c44; }
+  .card-name { font-size:13px; font-weight:600; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .card-handle { font-size:11px; color:var(--muted); margin-bottom:8px; }
+  .card-meta { display:flex; align-items:center; justify-content:space-between; }
+  .score-badge { font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px; }
+  .score-high { background:#2ecc7122; color:var(--green); }
+  .score-mid { background:#f39c1222; color:#f39c12; }
+  .score-low { background:#e74c3c22; color:var(--red); }
+  .card-detail { font-size:10px; color:var(--muted); }
+  .card-email { font-size:10px; color:var(--muted); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .card-actions { display:flex; gap:6px; margin-top:10px; }
+  .btn { flex:1; padding:6px; border-radius:6px; border:none; font-size:11px; font-weight:600; cursor:pointer; transition:all 0.15s; }
+  .btn-approve { background:#2ecc7122; color:var(--green); border:1px solid #2ecc7133; }
+  .btn-approve:hover { background:#2ecc7133; }
+  .btn-reject { background:#e74c3c22; color:var(--red); border:1px solid #e74c3c33; }
+  .btn-reject:hover { background:#e74c3c33; }
+  .btn-view { background:var(--surface); color:var(--muted); border:1px solid var(--border); }
+  .btn-view:hover { color:var(--text); }
+
+  .empty-col { flex:1; display:flex; align-items:center; justify-content:center; }
+  .empty-text { font-size:11px; color:#333; text-align:center; line-height:1.8; }
+
+  /* Modal */
+  .modal-overlay { display:none; position:fixed; inset:0; background:#000000cc; z-index:100; align-items:center; justify-content:center; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:var(--surface); border:1px solid var(--border); border-radius:16px; width:560px; max-height:80vh; overflow-y:auto; }
+  .modal-header { padding:24px 24px 0; display:flex; justify-content:space-between; align-items:flex-start; }
+  .modal-title { font-size:18px; font-weight:700; }
+  .modal-close { background:none; border:none; color:var(--muted); font-size:20px; cursor:pointer; padding:4px; }
+  .modal-close:hover { color:var(--text); }
+  .modal-body { padding:20px 24px 24px; }
+  .modal-field { margin-bottom:16px; }
+  .modal-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:4px; }
+  .modal-value { font-size:14px; color:var(--text); }
+  .modal-email-body { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:16px; font-size:13px; line-height:1.7; color:var(--text); white-space:pre-wrap; max-height:300px; overflow-y:auto; }
+  .modal-actions { display:flex; gap:12px; margin-top:20px; }
+  .modal-btn { flex:1; padding:12px; border-radius:8px; border:none; font-size:13px; font-weight:600; cursor:pointer; }
+  .modal-btn-approve { background:#2ecc71; color:#000; }
+  .modal-btn-approve:hover { background:#27ae60; }
+  .modal-btn-reject { background:#e74c3c22; color:var(--red); border:1px solid #e74c3c44; }
+  .modal-btn-reject:hover { background:#e74c3c33; }
+
+  /* Toast */
+  .toast { position:fixed; bottom:24px; right:24px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 20px; font-size:13px; opacity:0; transform:translateY(10px); transition:all 0.3s; z-index:200; }
+  .toast.show { opacity:1; transform:translateY(0); }
+  .toast.success { border-color:#2ecc7144; color:var(--green); }
+  .toast.error { border-color:#e74c3c44; color:var(--red); }
+
+  .spinner { display:inline-block; width:12px; height:12px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; margin-right:8px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">
+    <div class="logo-mark">VS</div>
+    <div>
+      <div class="logo-text">Vanta Studios</div>
+      <div class="logo-sub">Mission Control</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="refresh-badge">
+      <div class="pulse"></div>
+      <span>Live — refreshing in <span class="refresh-countdown" id="countdown">30</span>s</span>
+    </div>
+    <div class="last-updated" id="lastUpdated">Loading...</div>
+  </div>
+</div>
+
+<div class="stats-bar" id="statsBar">
+  <div class="stat"><div class="stat-label">Total Leads</div><div class="stat-value accent" id="s-total">—</div></div>
+  <div class="stat"><div class="stat-label">Discovered Today</div><div class="stat-value blue" id="s-today">—</div></div>
+  <div class="stat"><div class="stat-label">Qualified</div><div class="stat-value" id="s-qualified">—</div></div>
+  <div class="stat"><div class="stat-label">Awaiting Approval</div><div class="stat-value yellow" id="s-approval">—</div></div>
+  <div class="stat"><div class="stat-label">Emails Sent</div><div class="stat-value green" id="s-sent">—</div></div>
+  <div class="stat"><div class="stat-label">Replies</div><div class="stat-value accent" id="s-replies">—</div></div>
+</div>
+
+<div class="pipeline">
+  <div class="column">
+    <div class="col-header"><span class="col-title">Discovered</span><span class="col-count" id="c-new">0</span></div>
+    <div class="col-accent new"></div>
+    <div class="cards" id="col-new"></div>
+  </div>
+  <div class="column">
+    <div class="col-header"><span class="col-title">Verified</span><span class="col-count" id="c-verified">0</span></div>
+    <div class="col-accent verified"></div>
+    <div class="cards" id="col-verified"></div>
+  </div>
+  <div class="column">
+    <div class="col-header"><span class="col-title">Queued</span><span class="col-count" id="c-queued">0</span></div>
+    <div class="col-accent queued"></div>
+    <div class="cards" id="col-queued"></div>
+  </div>
+  <div class="column">
+    <div class="col-header"><span class="col-title">Approval</span><span class="col-count" id="c-awaiting_approval">0</span></div>
+    <div class="col-accent approval"></div>
+    <div class="cards" id="col-awaiting_approval"></div>
+  </div>
+  <div class="column">
+    <div class="col-header"><span class="col-title">Sent</span><span class="col-count" id="c-sent">0</span></div>
+    <div class="col-accent sent"></div>
+    <div class="cards" id="col-sent"></div>
+  </div>
+  <div class="column">
+    <div class="col-header"><span class="col-title">Replied</span><span class="col-count" id="c-replied">0</span></div>
+    <div class="col-accent replied"></div>
+    <div class="cards" id="col-replied"></div>
+  </div>
+  <div class="column">
+    <div class="col-header"><span class="col-title">Won</span><span class="col-count" id="c-closed_won">0</span></div>
+    <div class="col-accent won"></div>
+    <div class="cards" id="col-closed_won"></div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Lead Detail</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SUPABASE_URL = window.SUPABASE_URL || '';
+const ANON_KEY = window.SUPABASE_ANON_KEY || '';
+const SERVICE_KEY = window.SUPABASE_SERVICE_KEY || '';
+const VANTA_CLIENT_ID = 'd2a6eb7c-014c-43e6-9a5e-e0d5876c21cc';
+
+let refreshTimer = 30;
+let allLeads = [];
+let emailQueue = [];
+let currentModal = null;
+
+const headers = {
+  'apikey': SERVICE_KEY,
+  'Authorization': 'Bearer ' + SERVICE_KEY,
+  'Content-Type': 'application/json',
+  'Prefer': 'return=representation'
+};
+
+async function api(path, method='GET', body=null) {
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(SUPABASE_URL + '/rest/v1/' + path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+function scoreClass(s) {
+  if (s >= 70) return 'score-high';
+  if (s >= 50) return 'score-mid';
+  return 'score-low';
+}
+
+function cardHtml(lead, withActions=false) {
+  const name = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.email;
+  const handle = lead.linkedin_url ? '@' + lead.linkedin_url.split('/in/')[1]?.replace(/\/$/, '') : lead.email?.split('@')[0] || '';
+  const score = lead.ai_score || lead.quality_score || 0;
+  const sc = scoreClass(score);
+  return `
+    <div class="card${withActions ? ' approval' : ''}" onclick="openLead('${lead.id}')">
+      <div class="card-name">${name}</div>
+      <div class="card-handle">${handle}</div>
+      ${lead.email ? `<div class="card-email">${lead.email}</div>` : ''}
+      <div class="card-meta">
+        <span class="score-badge ${sc}">${score}</span>
+        <span class="card-detail">${lead.industry || lead.company || ''}</span>
+      </div>
+      ${withActions ? `
+      <div class="card-actions">
+        <button class="btn btn-approve" onclick="event.stopPropagation();approveLead('${lead.id}')">Approve</button>
+        <button class="btn btn-reject" onclick="event.stopPropagation();rejectLead('${lead.id}')">Reject</button>
+      </div>` : ''}
+    </div>`;
+}
+
+function emailCardHtml(item) {
+  return `
+    <div class="card approval" onclick="openEmail('${item.id}')">
+      <div class="card-name">${item.subject || 'No subject'}</div>
+      <div class="card-handle">To: ${item.to_email}</div>
+      <div class="card-meta">
+        <span class="score-badge score-mid">Pending</span>
+        <span class="card-detail">${new Date(item.created_at).toLocaleDateString()}</span>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-approve" onclick="event.stopPropagation();approveEmail('${item.id}')">Send</button>
+        <button class="btn btn-reject" onclick="event.stopPropagation();rejectEmail('${item.id}')">Reject</button>
+      </div>
+    </div>`;
+}
+
+function renderColumn(id, items, renderFn) {
+  const el = document.getElementById('col-' + id);
+  const count = document.getElementById('c-' + id);
+  if (!el) return;
+  count.textContent = items.length;
+  if (items.length === 0) {
+    el.innerHTML = `<div class="empty-col"><div class="empty-text">No leads yet<br>Pipeline will fill<br>as discovery runs</div></div>`;
+  } else {
+    el.innerHTML = items.map(renderFn).join('');
+  }
+}
+
+async function load() {
+  try {
+    const [leads, queue] = await Promise.all([
+      api(`leads?client_id=eq.${VANTA_CLIENT_ID}&order=created_at.desc&limit=200`),
+      api(`email_queue?client=eq.vanta_studios&status=eq.awaiting_approval&order=created_at.desc`)
+    ]);
+
+    allLeads = leads;
+    emailQueue = queue;
+
+    const byStatus = {};
+    ['new','verified','queued','awaiting_approval','sent','replied','closed_won','rejected'].forEach(s => byStatus[s] = []);
+    leads.forEach(l => { if (byStatus[l.status] !== undefined) byStatus[l.status].push(l); });
+
+    // Pipeline columns
+    renderColumn('new', byStatus.new, l => cardHtml(l));
+    renderColumn('verified', byStatus.verified, l => cardHtml(l));
+    renderColumn('queued', byStatus.queued, l => cardHtml(l));
+    renderColumn('sent', byStatus.sent, l => cardHtml(l));
+    renderColumn('replied', byStatus.replied, l => cardHtml(l));
+    renderColumn('closed_won', byStatus.closed_won, l => cardHtml(l));
+
+    // Approval column = email queue (pending emails) + leads awaiting_approval
+    const approvalEl = document.getElementById('col-awaiting_approval');
+    const approvalCount = document.getElementById('c-awaiting_approval');
+    const totalApproval = queue.length + byStatus.awaiting_approval.length;
+    approvalCount.textContent = totalApproval;
+    if (totalApproval === 0) {
+      approvalEl.innerHTML = `<div class="empty-col"><div class="empty-text">Nothing pending<br>approval</div></div>`;
+    } else {
+      approvalEl.innerHTML = queue.map(e => emailCardHtml(e)).join('') +
+        byStatus.awaiting_approval.map(l => cardHtml(l, true)).join('');
+    }
+
+    // Stats
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('s-total').textContent = leads.length;
+    document.getElementById('s-today').textContent = leads.filter(l => l.created_at?.startsWith(today)).length;
+    document.getElementById('s-qualified').textContent = leads.filter(l => (l.ai_score || l.quality_score || 0) >= 50).length;
+    document.getElementById('s-approval').textContent = totalApproval;
+    document.getElementById('s-sent').textContent = byStatus.sent.length + byStatus.replied.length + byStatus.closed_won.length;
+    document.getElementById('s-replies').textContent = byStatus.replied.length + byStatus.closed_won.length;
+
+    document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    console.error('Load error:', e);
+    document.getElementById('lastUpdated').textContent = 'Error: ' + e.message;
+  }
+}
+
+function openLead(id) {
+  const lead = allLeads.find(l => l.id === id);
+  if (!lead) return;
+  const name = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.email;
+  document.getElementById('modal-title').textContent = name;
+  document.getElementById('modal-body').innerHTML = `
+    <div class="modal-field"><div class="modal-label">Email</div><div class="modal-value">${lead.email || 'Not found'}</div></div>
+    <div class="modal-field"><div class="modal-label">Company</div><div class="modal-value">${lead.company || lead.industry || '—'}</div></div>
+    <div class="modal-field"><div class="modal-label">Quality Score</div><div class="modal-value">${lead.ai_score || lead.quality_score || 0} / 100</div></div>
+    <div class="modal-field"><div class="modal-label">Status</div><div class="modal-value">${lead.status}</div></div>
+    <div class="modal-field"><div class="modal-label">Source</div><div class="modal-value">${lead.source || '—'}</div></div>
+    ${lead.notes ? `<div class="modal-field"><div class="modal-label">Notes</div><div class="modal-value" style="font-size:13px;color:var(--muted);line-height:1.6">${lead.notes}</div></div>` : ''}
+    ${lead.ai_analysis?.fit_summary ? `<div class="modal-field"><div class="modal-label">AI Analysis</div><div class="modal-value" style="font-size:13px;color:var(--muted);line-height:1.6">${lead.ai_analysis.fit_summary}</div></div>` : ''}
+  `;
+  currentModal = { type: 'lead', id };
+  document.getElementById('modal').classList.add('open');
+}
+
+function openEmail(id) {
+  const item = emailQueue.find(e => e.id === id);
+  if (!item) return;
+  document.getElementById('modal-title').textContent = item.subject || 'Email Preview';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="modal-field"><div class="modal-label">To</div><div class="modal-value">${item.to_email}</div></div>
+    <div class="modal-field"><div class="modal-label">Subject</div><div class="modal-value">${item.subject}</div></div>
+    <div class="modal-field"><div class="modal-label">Email Body</div><div class="modal-email-body">${item.body || ''}</div></div>
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-approve" onclick="approveEmail('${id}');closeModal()">Send this email</button>
+      <button class="modal-btn modal-btn-reject" onclick="rejectEmail('${id}');closeModal()">Reject</button>
+    </div>
+  `;
+  currentModal = { type: 'email', id };
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  currentModal = null;
+}
+
+async function approveEmail(id) {
+  try {
+    await api(`email_queue?id=eq.${id}`, 'PATCH', { status: 'approved' });
+    toast('Email approved and queued to send', 'success');
+    load();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function rejectEmail(id) {
+  try {
+    await api(`email_queue?id=eq.${id}`, 'PATCH', { status: 'rejected' });
+    toast('Email rejected', 'success');
+    load();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function approveLead(id) {
+  try {
+    await api(`leads?id=eq.${id}`, 'PATCH', { status: 'queued' });
+    toast('Lead queued for outreach', 'success');
+    load();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function rejectLead(id) {
+  try {
+    await api(`leads?id=eq.${id}`, 'PATCH', { status: 'rejected' });
+    toast('Lead rejected', 'success');
+    load();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+function toast(msg, type='success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  setTimeout(() => el.className = 'toast', 3000);
+}
+
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal')) closeModal();
+});
+
+// Auto-refresh countdown
+function tick() {
+  refreshTimer--;
+  document.getElementById('countdown').textContent = refreshTimer;
+  if (refreshTimer <= 0) {
+    refreshTimer = 30;
+    load();
+  }
+}
+
+load();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>

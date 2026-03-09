@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# Kill switch check — bail early if Vanta OS is paused
+_KS=$(curl -s \
+  "https://afmpbtynucpbglwtbfuz.supabase.co/rest/v1/kill_switch?id=eq.d2a6eb7c-014c-43e6-9a5e-e0d5876c21cc&select=status" \
+  -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['status'] if d else 'running')" 2>/dev/null)
+if [[ "$_KS" == "stopped" ]]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Vanta OS kill switch active — skipping run"
+  exit 0
+fi
+
 # vanta-instagram-engage.sh
 # Instagram engagement for Vanta Studios lead generation:
 #   1. Comments on recent posts from leads (personalized, not generic)

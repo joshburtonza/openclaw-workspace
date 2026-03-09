@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# Kill switch check — bail early if Vanta OS is paused
+_KS=$(curl -s \
+  "https://afmpbtynucpbglwtbfuz.supabase.co/rest/v1/kill_switch?id=eq.d2a6eb7c-014c-43e6-9a5e-e0d5876c21cc&select=status" \
+  -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['status'] if d else 'running')" 2>/dev/null)
+if [[ "$_KS" == "stopped" ]]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Vanta OS kill switch active — skipping run"
+  exit 0
+fi
+
 # vanta-lead-verify.sh
 # Quality-scores all unverified Vanta leads.
 # Checks: email deliverability (MX + SMTP probe), Instagram activity, website liveness.
@@ -31,6 +40,7 @@ import os, json, sys, re, time, datetime, socket, smtplib, urllib.request, urlli
 import dns.resolver  # dnspython — install via: pip3 install dnspython
 
 SUPABASE_URL = os.environ['SUPABASE_URL']
+VANTA_CLIENT_ID = 'd2a6eb7c-014c-43e6-9a5e-e0d5876c21cc'
 SERVICE_KEY  = os.environ['SERVICE_KEY']
 BOT_TOKEN    = os.environ['BOT_TOKEN']
 CHAT_ID      = os.environ['CHAT_ID']
@@ -216,12 +226,13 @@ def calculate_quality_score(lead, email_mx_ok, email_deliverable, website_live, 
 
 # Fetch unverified leads (quality_scored_at is null, status='new')
 try:
-    leads = supa_get('vanta_leads', {
-        'quality_scored_at': 'is.null',
-        'outreach_status': 'eq.new',
-        'order': 'discovered_at.asc',
+    leads = supa_get('leads', {
+        'client_id': f'eq.{VANTA_CLIENT_ID}',
+        'quality_score': 'eq.0',
+        'status': 'eq.new',
+        'order': 'created_at.asc',
         'limit': str(MAX_PER_RUN),
-        'select': 'id,instagram_handle,full_name,email,website,follower_count,last_post_at,in_south_africa,engagement_rate',
+        'select': 'id,twitter_url,first_name,last_name,email,website,company_description,notes,headline,location_city,location_country,industry',
     })
 except Exception as e:
     print(f'[verify] Could not fetch leads: {e}', file=sys.stderr)
@@ -237,7 +248,7 @@ for lead in leads:
     lid   = lead['id']
     email = lead.get('email')
     url   = lead.get('website')
-    lp    = lead.get('last_post_at')
+    lp    = lead.get('last_contacted_at')  # used as proxy for IG last post
 
     # Email checks
     email_mx_ok      = verify_email_mx(email) if email else False
@@ -269,20 +280,23 @@ for lead in leads:
 
     now = datetime.datetime.utcnow().isoformat() + 'Z'
 
-    supa_patch('vanta_leads', lid, {
-        'quality_score':      score,
-        'quality_breakdown':  breakdown,
-        'quality_scored_at':  now,
-        'email_verified':     email_mx_ok,
-        'email_deliverable':  email_deliverable == 'valid' if email else None,
-        'email_domain_type':  classify_email_domain(email),
-        'website_live':       website_live,
-        'instagram_active':   ig_active,
-        'outreach_status':    new_status,
-        'updated_at':         now,
+    # Store verification details in ai_analysis jsonb
+    verification_data = {
+        'email_mx_ok': email_mx_ok,
+        'email_deliverable': email_deliverable,
+        'website_live': website_live,
+        'ig_active': ig_active,
+        'score_breakdown': breakdown,
+    }
+    supa_patch('leads', lid, {
+        'quality_score': score,
+        'ai_score':      score,
+        'ai_analysis':   verification_data,
+        'status':        new_status,
+        'updated_at':    now,
     })
 
-    handle = lead.get('instagram_handle', 'unknown')
+    handle = (lead.get('twitter_url') or '').rstrip('/').split('/')[-1] or lead.get('company','unknown')
     print(f'[verify] {handle}: score={score} status={new_status} (email_mx={email_mx_ok}, ig_active={ig_active}, website={website_live})')
     verified += 1
     time.sleep(0.3)

@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# Kill switch check — bail early if Vanta OS is paused
+_KS=$(curl -s \
+  "https://afmpbtynucpbglwtbfuz.supabase.co/rest/v1/kill_switch?id=eq.d2a6eb7c-014c-43e6-9a5e-e0d5876c21cc&select=status" \
+  -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmbXBidHludWNwYmdsd3RiZnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDk3ODksImV4cCI6MjA4Njk4NTc4OX0.Xc8wFxQOtv90G1MO4iLQIQJPCx1Z598o1GloU0bAlOQ" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['status'] if d else 'running')" 2>/dev/null)
+if [[ "$_KS" == "stopped" ]]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Vanta OS kill switch active — skipping run"
+  exit 0
+fi
+
 # vanta-lead-discovery.sh
 # Discovers SA photographer/studio leads from Instagram hashtags + Google Maps.
 # Writes raw candidate data to Supabase vanta_leads (status='new').
@@ -43,15 +52,15 @@ HASHTAGS     = [h.strip().lstrip('#') for h in os.environ['HASHTAGS'].split(',')
 
 # ── Supabase helpers ──────────────────────────────────────────────────────────
 
-def supa_post(table, rows):
-    """Insert rows, ignore conflicts on instagram_handle."""
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
+def supa_post(rows):
+    """Insert rows into leads table (client_id already set on each row)."""
+    url = f"{SUPABASE_URL}/rest/v1/leads"
     data = json.dumps(rows).encode()
     req = urllib.request.Request(url, data=data, method='POST', headers={
         'apikey': SERVICE_KEY,
         'Authorization': f'Bearer {SERVICE_KEY}',
         'Content-Type': 'application/json',
-        'Prefer': 'resolution=ignore-duplicates,return=minimal',
+        'Prefer': 'return=minimal',
     })
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
@@ -61,8 +70,8 @@ def supa_post(table, rows):
         return False
 
 def supa_get_handles():
-    """Get all existing instagram_handles to avoid re-processing."""
-    url = f"{SUPABASE_URL}/rest/v1/vanta_leads?select=instagram_handle"
+    """Get existing IG handles (stored in twitter_url) to avoid re-processing."""
+    url = f"{SUPABASE_URL}/rest/v1/leads?client_id=eq.{VANTA_CLIENT_ID}&select=twitter_url"
     req = urllib.request.Request(url, headers={
         'apikey': SERVICE_KEY,
         'Authorization': f'Bearer {SERVICE_KEY}',
@@ -71,7 +80,8 @@ def supa_get_handles():
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
             rows = json.loads(r.read())
-        return set(r['instagram_handle'] for r in rows if r.get('instagram_handle'))
+        # twitter_url stored as https://www.instagram.com/{handle}/
+        return set(r['twitter_url'].rstrip('/').split('/')[-1] for r in rows if r.get('twitter_url'))
     except Exception:
         return set()
 
@@ -134,16 +144,18 @@ def ig_fetch_hashtag(tag, max_posts=20):
         seen_users.add(username)
 
         # Extract what's available from post metadata
+        # Map to leads table schema: twitter_url = IG profile URL (used as unique key)
         lead = {
-            'instagram_handle': username,
-            'full_name': owner.get('full_name') or '',
-            'follower_count': owner.get('edge_followed_by', {}).get('count') if isinstance(owner.get('edge_followed_by'), dict) else None,
+            'twitter_url': f'https://www.instagram.com/{username}/',
+            'first_name': (owner.get('full_name') or '').split()[0] if owner.get('full_name') else username,
+            'last_name': ' '.join((owner.get('full_name') or '').split()[1:]) or None,
+            'company': username,  # IG handle as company identifier
+            'follower_count_raw': owner.get('edge_followed_by', {}).get('count') if isinstance(owner.get('edge_followed_by'), dict) else None,
             'is_business_account': owner.get('is_business_account', False),
-            'last_post_at': datetime.datetime.fromtimestamp(
-                int(node.get('taken_at_timestamp', 0)), tz=datetime.timezone.utc
-            ).isoformat() if node.get('taken_at_timestamp') else None,
-            'source': 'instagram_hashtag',
+            'source': 'instagram',
             'source_hashtag': tag,
+            'client_id': VANTA_CLIENT_ID,
+            'status': 'new',
         }
         leads.append(lead)
         time.sleep(random.uniform(0.3, 0.8))
@@ -238,21 +250,28 @@ def ig_fetch_profile(username):
         else:
             avg_likes = avg_comments = engagement_rate = None
 
-        return {
-            'bio_text': bio,
-            'website': website,
-            'email': email,
-            'phone': phone,
-            'in_south_africa': in_sa,
-            'location_city': location_city,
-            'specialties': specialties,
+        # Map to leads table schema
+        follower_str = str(follower_count) if follower_count else ''
+        engagement_str = f'{round(engagement_rate,2)}%' if engagement_rate else ''
+        notes_meta = json.dumps({
             'follower_count': follower_count,
             'post_count': post_count,
             'avg_likes': round(avg_likes, 1) if avg_likes is not None else None,
             'avg_comments': round(avg_comments, 1) if avg_comments is not None else None,
             'engagement_rate': round(engagement_rate, 2) if engagement_rate is not None else None,
+            'in_south_africa': in_sa,
             'is_business_account': user.get('is_business_account', False),
-            'profile_url': f'https://www.instagram.com/{username}/',
+        })
+        return {
+            'email': email,
+            'website': website,
+            'headline': bio[:500] if bio else None,
+            'location_city': location_city,
+            'location_country': 'ZA' if in_sa else None,
+            'industry': ', '.join(specialties) if specialties else 'photography',
+            'company_description': f'IG followers: {follower_str} | engagement: {engagement_str}',
+            'notes': notes_meta,
+            'tags': specialties + ['photographer', 'instagram'],
         }
     except Exception as e:
         print(f'[discovery] Profile fetch failed for {username}: {e}', file=sys.stderr)
@@ -294,13 +313,16 @@ for tag in HASHTAGS:
     if len(all_new) >= 20:
         batch = all_new[:20]
         all_new = all_new[20:]
-        supa_post('vanta_leads', batch)
+        # Strip internal-only keys before insert
+        clean = [{k:v for k,v in r.items() if k not in ('follower_count_raw','is_business_account','source_hashtag')} for r in batch]
+        supa_post(clean)
 
     time.sleep(random.uniform(3, 6))  # Respect rate limits between hashtags
 
 # Final batch
 if all_new:
-    supa_post('vanta_leads', all_new)
+    clean = [{k:v for k,v in r.items() if k not in ('follower_count_raw','is_business_account','source_hashtag')} for r in all_new]
+    supa_post(clean)
 
 print(f'[discovery] Done. {new_leads_count} new leads discovered.')
 

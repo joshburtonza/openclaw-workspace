@@ -310,6 +310,120 @@ New message: ${messageText}`;
   });
 }
 
+// ── Proactive intel detector — runs async on every group message ──────────────
+// Watches for signals Josh should know about before he even asks.
+// Sends a private DM to Josh if something actionable is detected.
+// Rate-limited: one proactive ping per group per 30 minutes max.
+const proactiveLastFired = new Map(); // groupId → timestamp
+
+async function checkProactiveIntel(msg, groupId, groupName, senderName, senderRole, messageText, recentHistory) {
+  if (!messageText || messageText.length < 8) return;
+
+  // Rate limit — don't spam Josh about the same group
+  const last = proactiveLastFired.get(groupId) || 0;
+  if (Date.now() - last < 30 * 60 * 1000) return;
+
+  const key = env.OPENAI_API_KEY || '';
+  if (!key) return;
+
+  // Load Sophia's pending context — tasks, reminders, recent emails sent to this client
+  let pendingContext = '';
+  try {
+    const reminders = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8'));
+    const clientReminders = reminders.filter(r => !r.fired &&
+      (r.message || '').toLowerCase().includes(groupName.toLowerCase().split(' ')[0].toLowerCase()));
+    if (clientReminders.length > 0) {
+      pendingContext += `Pending reminders for this client: ${clientReminders.map(r => r.message).join('; ')}\n`;
+    }
+  } catch { /* */ }
+  try {
+    const drafts = JSON.parse(fs.readFileSync(path.join(WS, 'tmp/pending-weekly-reports.json'), 'utf8'));
+    const clientDraft = (drafts || []).find(d => groupName.toLowerCase().includes((d.client || '').toLowerCase().split(' ')[0].toLowerCase()));
+    if (clientDraft) pendingContext += `Pending email draft for ${clientDraft.client} awaiting approval.\n`;
+  } catch { /* */ }
+
+  const systemPrompt =
+`You are Sophia, an AI chief of staff watching a WhatsApp group conversation on behalf of Josh (the founder of Amalfi AI).
+Your job: detect moments where Josh would benefit from a proactive heads-up or offer of help — BEFORE he has to ask.
+
+Trigger a proactive DM to Josh when you notice:
+- A client signalling they want a meeting, call, or catch-up
+- Josh asking about something Sophia can handle (scheduling, emails, tasks)
+- A client expressing frustration, confusion, or unmet expectations
+- A client asking about features, timelines, or progress Sophia has context on
+- A business opportunity or expansion signal
+- Something being discussed that Sophia already has a pending action for
+
+Do NOT trigger for:
+- Normal project chatter with no actionable signal
+- Messages that are clearly already handled
+- Casual pleasantries
+
+If you detect a signal, output a SHORT WhatsApp DM to Josh (2-3 sentences max).
+Start with what you noticed, then offer the specific action.
+Sound like a sharp colleague who caught something, not a bot reporting an event.
+No hyphens. No bullet points. No markdown.
+
+If nothing actionable is detected, output only: NOTHING`;
+
+  const userPrompt =
+`Group: ${groupName}
+${senderRole ? `Sender role: ${senderRole}` : `Sender: ${senderName}`}
+${pendingContext ? `Sophia's pending context:\n${pendingContext}` : ''}
+Recent conversation:
+${recentHistory || '(none)'}
+
+New message from ${senderName}: ${messageText}`;
+
+  const payload = Buffer.from(JSON.stringify({
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userPrompt },
+    ],
+    max_tokens: 120,
+    temperature: 0.4,
+  }));
+
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'api.openai.com',
+      path:     '/v1/chat/completions',
+      method:   'POST',
+      headers: {
+        'Authorization':  `Bearer ${key}`,
+        'Content-Type':   'application/json',
+        'Content-Length': payload.length,
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', d => { data += d; });
+      res.on('end', async () => {
+        try {
+          const r = JSON.parse(data);
+          const suggestion = r?.choices?.[0]?.message?.content?.trim() || '';
+          if (!suggestion || suggestion === 'NOTHING' || suggestion.startsWith('NOTHING')) {
+            return resolve(null);
+          }
+          log(`Proactive intel detected for group "${groupName}": ${suggestion.slice(0, 80)}`);
+          proactiveLastFired.set(groupId, Date.now());
+          // Send private DM to Josh
+          const ownerJid = (OWNER_NUMBER || '').replace(/^\+/, '') + '@c.us';
+          if (ownerJid !== '@c.us') {
+            try { await client.sendMessage(ownerJid, suggestion); } catch (e) {
+              log(`Proactive DM to Josh failed: ${e.message}`);
+            }
+          }
+          resolve(suggestion);
+        } catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.write(payload);
+    req.end();
+  });
+}
+
 // ── Adaptive per-person memory (runs async after each exchange) ────────────────
 function updatePersonMemory(name, userMessage, sophiaReply) {
   if (!name || name === 'User') return;
@@ -1893,6 +2007,18 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
     const recentForClassifier = groupHistFile
       ? loadGroupHistory(groupHistFile, 4).map(e => `${e.name}: ${e.text}`).join('\n')
       : '';
+
+    // Proactive intel — runs async in background, never blocks
+    // Fires when sender is not Sophia herself and group is a known client group
+    if (!msg.fromMe && senderRole) {
+      setImmediate(() => {
+        checkProactiveIntel(
+          msg, msg.from, detectedGroupName, senderName, senderRole,
+          userText, recentForClassifier
+        ).catch(() => { /* silent */ });
+      });
+    }
+
     const classification = await classifyMessage({
       groupName:     detectedGroupName,
       senderName,
