@@ -120,7 +120,7 @@ def call_gpt(system, user, model='gpt-4o', max_tokens=600):
             {'role': 'user',   'content': user},
         ],
         'max_tokens': max_tokens,
-        'temperature': 0.4,
+        'temperature': 0.7,
     }).encode()
     req = urllib.request.Request(
         'https://api.openai.com/v1/chat/completions',
@@ -153,15 +153,39 @@ def send_wa_voice(text):
         print(f'WA voice error: {e}')
 
 def generate_text_report(name, data):
+    system_prompt = call_gpt(
+        'You are a prompt engineer specialising in concise, human WhatsApp communication. '
+        'Write a system prompt that instructs GPT-4o to write a Monday morning WhatsApp client brief for Josh, the founder of Amalfi AI. '
+        'It must sound like a real person who works closely with these clients — sharp, specific, no fluff. '
+        'Output only the system prompt text, nothing else.',
+        f'Write a system prompt for a WhatsApp Monday brief about {name}. '
+        f'Should use WhatsApp bold (*text*) for four section labels: Done this week, Status, Where they are, Coming up. '
+        f'Max 100 words for the system prompt.'
+    )
+    if not system_prompt:
+        system_prompt = 'You are Sophia from Amalfi AI. Write a sharp Monday WhatsApp brief for Josh. No hyphens. Bold section labels. Max 220 words.'
+
     return call_gpt(
-        'You are Sophia, Amalfi AI\'s client success manager. Write a structured Monday status update for Josh about one of his clients. No hyphens anywhere. No markdown headers. Use bold (*text*) for WhatsApp section labels. Max 250 words. Structure four sections: (1) *Done this week* covering specific completed work, (2) *Current status* covering where the project stands right now, (3) *Client journey* covering where they are in the engagement arc and relationship health, (4) *Coming up* covering next steps, upcoming deliverables, any flags. Be direct, specific, no filler.',
-        f'Today: {today}\nClient: {name}\n\nData:\n{data[:2500]}\n\nWrite the Monday update. Start with the client name bolded. Cover all four sections: Done this week, Current status, Client journey, Coming up.'
+        system_prompt,
+        f'Today: {today}\nClient: {name}\n\nData:\n{data[:2500]}\n\nWrite the WhatsApp brief. Start with the client name bolded.',
+        max_tokens=700
     )
 
 def generate_voice_script(name, data):
+    system_prompt = call_gpt(
+        'You are a prompt engineer specialising in natural spoken audio scripts. '
+        'Write a system prompt that instructs GPT-4o to write a Monday morning voice note script from Sophia (Amalfi AI) to Josh. '
+        'It will be converted to TTS audio — must sound like natural speech, not a written document. '
+        'Output only the system prompt text, nothing else.',
+        f'Write a system prompt for a spoken Monday morning update about {name}. Max 100 words.'
+    )
+    if not system_prompt:
+        system_prompt = 'You are Sophia from Amalfi AI. Write a natural spoken voice note for Josh. No lists, no markdown. Max 130 words.'
+
     return call_gpt(
-        'You are Sophia, Amalfi AI\'s client success manager. Write a spoken Monday morning brief for Josh about one of his clients. This will be read aloud via TTS — no bullet points, no markdown, no asterisks, just natural spoken sentences. Warm but professional. Max 150 words. Cover four things naturally as one flowing spoken update: what was completed this week, where the project stands right now, where they are in the client journey and relationship arc, and what is coming up next.',
-        f'Today: {today}\nClient: {name}\n\nData:\n{data[:2500]}\n\nWrite the spoken brief. Start with "Good morning Josh" then go straight into the update naturally covering: what got done, current status, where they are in the journey, and what is coming up.'
+        system_prompt,
+        f'Today: {today}\nClient: {name}\n\nData:\n{data[:2500]}\n\nStart with "Morning Josh" then go straight into it.',
+        max_tokens=400
     )
 
 # ── Opening header text ────────────────────────────────────────────────────────

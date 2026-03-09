@@ -377,11 +377,30 @@ function saveProactiveQueue(list) {
   try { fs.writeFileSync(PROACTIVE_QUEUE_FILE, JSON.stringify(list, null, 2)); } catch { /* */ }
 }
 
-// Resolve a phone number or partial group name to a WA chat ID
+const CLIENT_GROUPS_FILE = path.join(WS, 'memory/client-groups.json');
+
+function loadClientGroups() {
+  try { return JSON.parse(fs.readFileSync(CLIENT_GROUPS_FILE, 'utf8')); } catch { return {}; }
+}
+
+function saveClientGroupJid(slug, jid) {
+  try {
+    const g = loadClientGroups();
+    if (g[slug] === jid) return;
+    g[slug] = jid;
+    fs.writeFileSync(CLIENT_GROUPS_FILE, JSON.stringify(g, null, 2));
+    log(`Client group JID saved: ${slug} → ${jid}`);
+  } catch { /* */ }
+}
+
+// Resolve a phone number, client slug, or @g.us JID to a WA chat ID
 function resolveChatId(to) {
   if (!to) return null;
   // Already a WA ID
   if (to.endsWith('@c.us') || to.endsWith('@g.us')) return to;
+  // Client slug → group JID
+  const groups = loadClientGroups();
+  if (groups[to]) return groups[to];
   // Phone number
   const digits = to.replace(/\D/g, '');
   if (digits.length >= 8) return digits + '@c.us';
@@ -691,10 +710,121 @@ If you cannot determine a date, use null for date.`,
   reply += `⏱ ${params.duration || 60} minutes\n`;
   reply += `👥 ${params.attendees.join(', ')}\n`;
   if (meetLink) reply += `\n🔗 *Meet link:* ${meetLink}`;
-  reply += `\n\nInvites sent to all attendees.`;
+
+  // Sophia emails the Meet link to all attendees from sophia@amalfiai.com
+  // Josh is the host (calendar owner), Sophia handles the client-facing comms
+  if (meetLink && params.attendees.length > 0) {
+    const emailSubject = `${params.title || 'Meeting'} — Google Meet link`;
+    const emailBody = [
+      `Hi,`,
+      ``,
+      `Your meeting has been confirmed. Here are the details:`,
+      ``,
+      `Date: ${eventDate} at ${eventTime} SAST`,
+      `Duration: ${params.duration || 60} minutes`,
+      `Google Meet: ${meetLink}`,
+      params.description ? `\nNote: ${params.description}` : '',
+      ``,
+      `See you then!`,
+      ``,
+      `Sophia`,
+      `Amalfi AI`,
+    ].filter(l => l !== undefined).join('\n');
+
+    for (const attendeeEmail of params.attendees) {
+      const gogEmailArgs = [
+        'gmail', 'send',
+        '--account', 'sophia@amalfiai.com',
+        '--to', attendeeEmail,
+        '--subject', emailSubject,
+        '--body-html', emailBody.replace(/\n/g, '<br>'),
+        '--no-input', '-y',
+      ];
+      const emailResult = spawnSync('gog', gogEmailArgs, {
+        encoding: 'utf8', timeout: 15000,
+        env: { ...process.env, HOME: '/Users/henryburton', PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin' },
+      });
+      if (emailResult.status === 0) {
+        log(`[meet] Sophia emailed Meet link to ${attendeeEmail}`);
+      } else {
+        log(`[meet] Email to ${attendeeEmail} failed: ${emailResult.stderr}`);
+      }
+    }
+    reply += `\n\nSophia has emailed the Meet link to all attendees.`;
+  }
 
   await client.sendMessage(chatId, reply);
   return true;
+}
+
+// ── Schedule / task context fetch ────────────────────────────────────────────
+const SCHEDULE_KEYWORDS = /\b(what('?s| is| do i have| are).{0,30}(schedule|week|day|today|tomorrow|calendar|on|planned|coming up|agenda)|my (week|schedule|day|tasks|reminders|calendar)|what.{0,20}(coming up|on this week|on today|planned)|anything (on|scheduled|coming)|my (to.?do|task list)|what.{0,10}(sophia|you).{0,20}(have|got|working on|queued|scheduled)|whats? happening|what are (my|the) tasks)\b/i;
+
+async function fetchScheduleContext() {
+  const sections = [];
+
+  // 1. Calendar — next 7 days
+  try {
+    const cal = spawnSync('gog', ['calendar', 'list', '--account', 'josh@amalfiai.com', '--days', '7'], {
+      encoding: 'utf8', timeout: 10000,
+      env: { ...process.env, HOME: '/Users/henryburton', PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin' },
+    });
+    if (cal.status === 0 && cal.stdout.trim()) {
+      sections.push(`=== CALENDAR (next 7 days) ===\n${cal.stdout.trim()}`);
+    }
+  } catch { /* */ }
+
+  // 2. Sophia's queued reminders
+  try {
+    const reminders = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf8'));
+    const now = Date.now();
+    const upcoming = reminders.filter(r => !r.fired && new Date(r.fireAt).getTime() > now - 3600000);
+    if (upcoming.length > 0) {
+      const lines = upcoming.map(r => `- ${new Date(r.fireAt).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}: ${r.message}`);
+      sections.push(`=== SOPHIA'S QUEUED REMINDERS ===\n${lines.join('\n')}`);
+    }
+  } catch { /* */ }
+
+  // 3. Pending email drafts waiting for approval
+  try {
+    const drafts = JSON.parse(fs.readFileSync(path.join(WS, 'tmp/pending-weekly-reports.json'), 'utf8'));
+    if (drafts && drafts.length > 0) {
+      sections.push(`=== PENDING EMAIL DRAFTS (awaiting your approval) ===\n${drafts.map(d => `- ${d.client}: ${d.subject}`).join('\n')}`);
+    }
+  } catch { /* */ }
+
+  // 4. Proactive WA queue
+  try {
+    const queue = JSON.parse(fs.readFileSync(PROACTIVE_QUEUE_FILE, 'utf8'));
+    if (queue && queue.length > 0) {
+      sections.push(`=== SOPHIA'S OUTBOUND WA QUEUE (${queue.length} pending) ===\n${queue.slice(0, 5).map(q => `- To: ${q.to || q.group} — ${(q.message || '').slice(0, 80)}`).join('\n')}`);
+    }
+  } catch { /* */ }
+
+  // 5. Open Supabase tasks (high + urgent)
+  try {
+    const supaUrl = process.env.AOS_SUPABASE_URL || '';
+    const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    if (supaUrl && supaKey) {
+      const tasksRes = spawnSync('curl', [
+        '-s', `${supaUrl}/rest/v1/tasks?status=in.(todo,in_progress)&order=priority.desc&limit=10`,
+        '-H', `apikey: ${supaKey}`,
+        '-H', `Authorization: Bearer ${supaKey}`,
+      ], { encoding: 'utf8', timeout: 8000 });
+      if (tasksRes.status === 0) {
+        const tasks = JSON.parse(tasksRes.stdout || '[]');
+        if (Array.isArray(tasks) && tasks.length > 0) {
+          const lines = tasks.map(t => {
+            const p = t.priority === 'urgent' ? '[URGENT] ' : t.priority === 'high' ? '[HIGH] ' : '';
+            return `- ${p}[${t.status}] ${t.title}`;
+          });
+          sections.push(`=== OPEN TASKS ===\n${lines.join('\n')}`);
+        }
+      }
+    }
+  } catch { /* */ }
+
+  return sections.length > 0 ? sections.join('\n\n') : null;
 }
 
 // ── Flight search + booking (WhatsApp) ───────────────────────────────────────
@@ -1210,19 +1340,19 @@ Write the WhatsApp message. Natural, warm. No hyphens. No bullet-point walls.`;
 
     } else if (action.type === 'send_email' && action.to && action.briefing) {
       try {
-        // Client emails go from josh@amalfiai.com — they should come from the founder, not Sophia.
-        // Internal/non-client emails go from sophia@amalfiai.com.
-        const fromAccount = action.is_client ? 'josh@amalfiai.com' : 'sophia@amalfiai.com';
+        // All Sophia emails go from sophia@amalfiai.com.
+        // josh@amalfiai.com is only used as Google Meet organiser/host — never for email sending.
+        const fromAccount = 'sophia@amalfiai.com';
 
-        const emailPrompt = `You are drafting a professional email on behalf of ${action.is_client ? 'Josh Burton (josh@amalfiai.com), founder of Amalfi AI' : 'Sophia, Amalfi AI client success manager'}.
+        const emailPrompt = `You are drafting a professional email as Sophia, Amalfi AI client success manager (sophia@amalfiai.com).
 Recipient: ${action.name || action.to} <${action.to}>
 Subject: ${action.subject || '(no subject given)'}
 Instruction: ${action.briefing}
 
-Write the email body only (no Subject line). Professional, warm, no hyphens. No markdown. Sign off appropriately.`;
+Write the email body only (no Subject line). Professional, warm, no hyphens. No markdown. Sign off as Sophia from Amalfi AI.`;
 
         const emailBody = await runGPT(
-          `You are an email writing assistant for ${action.is_client ? 'Josh Burton, founder of Amalfi AI' : 'Sophia at Amalfi AI'}. Write professional emails. No hyphens.`,
+          'You are an email writing assistant for Sophia at Amalfi AI. Write professional emails. No hyphens.',
           emailPrompt,
           'gpt-4o'
         );
@@ -1245,8 +1375,8 @@ Write the email body only (no Subject line). Professional, warm, no hyphens. No 
             results.push(`Email send failed: ${(r.stderr || '').slice(0, 150)}`);
             log(`Owner action email error: ${r.stderr}`);
           } else {
-            results.push(`Email sent to ${action.name || action.to} from ${fromAccount}: "${action.subject || '(no subject)'}"`);
-            log(`Owner action: sent email to ${action.to} from ${fromAccount}`);
+            results.push(`Email sent to ${action.name || action.to} from sophia@amalfiai.com: "${action.subject || '(no subject)'}"`);
+            log(`Owner action: sent email to ${action.to} from sophia@amalfiai.com`);
           }
         }
       } catch (e) {
@@ -1371,6 +1501,74 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
 
   if (!userText) return;
 
+  // ── Owner DM: check pending weekly reports approval ───────────────────────────
+  if (isOwner && !isGroup) {
+    const WEEKLY_PENDING_FILE = path.join(WS, 'tmp/pending-weekly-reports.json');
+    const APPROVE_RE = /^(send it|send them|approved?|looks? good|good to go|yes send|fire it|go ahead|confirm)\b/i;
+    let weeklyDrafts = null;
+    try { weeklyDrafts = JSON.parse(fs.readFileSync(WEEKLY_PENDING_FILE, 'utf8')); } catch { /* */ }
+
+    if (weeklyDrafts && weeklyDrafts.length > 0 && APPROVE_RE.test(userText.trim())) {
+      await client.sendMessage(msg.from, `📧 Sending ${weeklyDrafts.length} weekly client emails...`);
+      let sent = 0;
+      const groups = loadClientGroups();
+
+      for (const draft of weeklyDrafts) {
+        // Send email
+        const htmlBody = draft.body.replace(/\n/g, '<br>');
+        const gogArgs = [
+          'gmail', 'send',
+          '--account', 'sophia@amalfiai.com',
+          '--to', draft.to,
+          '--subject', draft.subject,
+          '--body-html', htmlBody,
+          '--no-input', '-y',
+        ];
+        if (draft.cc) { gogArgs.push('--cc', draft.cc); }
+        const r = spawnSync('gog', gogArgs, {
+          encoding: 'utf8', timeout: 20000,
+          env: { ...process.env, HOME: '/Users/henryburton', PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin' },
+        });
+
+        if (r.status === 0) {
+          sent++;
+          log(`Weekly email sent to ${draft.to} (${draft.client})`);
+
+          // Generate and send WA group summary
+          const groupJid = draft.group_slug ? groups[draft.group_slug] : null;
+          if (groupJid) {
+            const summary = await runGPT(
+              'You are Sophia from Amalfi AI. Write a friendly WhatsApp message to a client group as a casual follow-up to their weekly update email. ' +
+              'Always open with a casual greeting like "Hey guys," or "Morning guys," or similar — never jump straight into content. ' +
+              'Cover what was shipped this week, how the project is sitting, and what is coming next. ' +
+              'Be specific — name the actual things that were built, not vague summaries. ' +
+              'Sound like a person who knows the project well, not a company announcement. ' +
+              'Conversational tone, warm but not sappy. 5 to 7 sentences. No hyphens. No markdown bold. No bullet points.',
+              `Client: ${draft.client}\n\nEmail content:\n${draft.body}\n\nWrite the WhatsApp group message now.`,
+              'gpt-4o'
+            );
+            if (summary) {
+              try {
+                await client.sendMessage(groupJid, summary);
+                log(`Weekly WA group summary sent to ${draft.client} group`);
+              } catch (e) {
+                log(`Weekly WA group summary failed for ${draft.client}: ${e.message}`);
+              }
+            }
+          } else {
+            log(`No group JID for ${draft.client} (${draft.group_slug}) — WA summary skipped`);
+          }
+        } else {
+          log(`Weekly email FAILED for ${draft.to}: ${r.stderr}`);
+        }
+      }
+
+      try { fs.unlinkSync(WEEKLY_PENDING_FILE); } catch { /* */ }
+      await client.sendMessage(msg.from, `✅ ${sent}/${weeklyDrafts.length} weekly emails sent + WA group summaries pushed.`);
+      return;
+    }
+  }
+
   // ── Owner DM: check pending flight state first ────────────────────────────────
   if (isOwner && !isGroup) {
     const pendingFlight = loadPendingFlight();
@@ -1378,6 +1576,15 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
       const handled = await handleFlightBooking(msg.from, fromNum, userText, pendingFlight);
       if (handled) return;
     }
+    // Schedule / task query — fetch context and inject, let GPT-4o answer naturally
+    if (SCHEDULE_KEYWORDS.test(userText)) {
+      const schedCtx = await fetchScheduleContext();
+      if (schedCtx) {
+        msg._scheduleContext = schedCtx;
+        log('Schedule context fetched for owner query');
+      }
+    }
+
     // Meeting scheduling request
     if (MEET_KEYWORDS.test(userText)) {
       await handleMeetingSchedule(msg.from, userText);
@@ -1416,6 +1623,9 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
   let groupHistFile = null;
   if (isGroup) {
     try { detectedGroupName = (await msg.getChat()).name || msg.from; } catch { detectedGroupName = msg.from; }
+    // Auto-save group JID for proactive outbound use
+    const _gclient = resolveGroupClient(detectedGroupName);
+    if (_gclient?.slug) saveClientGroupJid(_gclient.slug, msg.from);
     // Check muted groups list — if this group is muted, Sophia stays silent
     try {
       const muted = fs.readFileSync(MUTED_GROUPS_FILE, 'utf8').split('\n').map(l => l.trim()).filter(Boolean);
@@ -1602,6 +1812,10 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
   if (!isTrialUser) {
     try { longTermMemory = fs.readFileSync(path.join(WS, 'memory/MEMORY.md'), 'utf8'); } catch { /* */ }
   }
+  let sophiaMemory = '';
+  if (!isTrialUser) {
+    try { sophiaMemory = fs.readFileSync(path.join(WS, 'memory/sophia/memory.md'), 'utf8'); } catch { /* */ }
+  }
   let currentState = '';
   if (!isTrialUser) {
     try { currentState = fs.readFileSync(path.join(WS, 'CURRENT_STATE.md'), 'utf8'); } catch { /* */ }
@@ -1631,8 +1845,8 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
     clientBrief = await fetchClientBrief(senderRole);
   }
 
-  const memBlock = (userProfile || longTermMemory || currentState || sophiaAwareness || clientBrief)
-    ? `\n=== ${senderName.toUpperCase()} PROFILE ===\n${userProfile}\n\n=== AMALFI AI MEMORY ===\n${longTermMemory}\n\n=== CURRENT SYSTEM STATE ===\n${currentState}\n${awarenessBlock}${clientBrief}`
+  const memBlock = (userProfile || longTermMemory || sophiaMemory || currentState || sophiaAwareness || clientBrief)
+    ? `\n=== ${senderName.toUpperCase()} PROFILE ===\n${userProfile}\n\n=== AMALFI AI MEMORY ===\n${longTermMemory}\n\n=== SOPHIA LEARNED MEMORY ===\n${sophiaMemory}\n\n=== CURRENT SYSTEM STATE ===\n${currentState}\n${awarenessBlock}${clientBrief}`
     : '';
 
   const speaker   = senderName !== fromNum ? senderName : (isOwner ? 'Josh' : 'User');
@@ -1660,10 +1874,15 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
     }
   }
 
+  // Schedule context — injected when Josh asks about his week/tasks/reminders
+  const scheduleBlock = msg._scheduleContext
+    ? `\n\n=== JOSH'S SCHEDULE & TASK SNAPSHOT ===\n${msg._scheduleContext}\n`
+    : '';
+
   // GPT-4o: system = Sophia's identity rules, user = all context + message
   const userContent = historyText
-    ? `Today: ${today}${channelLine}${memBlock}\n=== RECENT CONVERSATION ===\n${historyText}\n\n${speaker}: ${messageWithContext}${executionSummary}`
-    : `Today: ${today}${channelLine}${memBlock}\n${speaker}: ${messageWithContext}${executionSummary}`;
+    ? `Today: ${today}${channelLine}${memBlock}${scheduleBlock}\n=== RECENT CONVERSATION ===\n${historyText}\n\n${speaker}: ${messageWithContext}${executionSummary}`
+    : `Today: ${today}${channelLine}${memBlock}${scheduleBlock}\n${speaker}: ${messageWithContext}${executionSummary}`;
 
   if (histFile) appendHistory(speaker, userText, histFile);
 
@@ -1783,6 +2002,23 @@ async function handleMessage(msg, fromNum, isGroup, isOwner, batchItems = []) {
 
   // Adaptive memory — async background update after each exchange
   updatePersonMemory(senderName, userText, response);
+
+  // Structured conversation log — feeds nightly sophia-learns distiller
+  try {
+    const dateKey = new Date().toLocaleDateString('en-ZA', { timeZone: 'Africa/Johannesburg' })
+      .split('/').reverse().join('-');
+    const logEntry = JSON.stringify({
+      ts:        new Date().toISOString(),
+      sender:    senderName,
+      from:      fromNum,
+      isGroup,
+      group:     isGroup ? detectedGroupName : null,
+      client:    resolveSlug(isGroup ? detectedGroupName : null, fromNum),
+      inbound:   userText,
+      outbound:  response,
+    });
+    fs.appendFileSync(path.join(WS, `out/wa-conversations-${dateKey}.jsonl`), logEntry + '\n');
+  } catch { /* */ }
 
   // Free-text analysis — extract reminders + tasks from all owner messages
   if (isOwner) extractAndSaveReminder(fromNum, senderName, userText, response);
